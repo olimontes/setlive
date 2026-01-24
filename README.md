@@ -6,7 +6,7 @@
 
 ## 🚀 Visão do Projeto
 
-**StageFlow** é uma plataforma pensada para músicos que fazem performances ao vivo (bares, eventos, casamentos, igrejas, shows autorais, etc.) e precisam de uma forma mais prática de organizar seus repertórios, lidar com pedidos do público e acessar cifras durante a apresentação.
+**SetLiive** é uma plataforma pensada para músicos que fazem performances ao vivo (bares, eventos, casamentos, igrejas, shows autorais, etc.) e precisam de uma forma mais prática de organizar seus repertórios, lidar com pedidos do público e acessar cifras durante a apresentação.
 
 A proposta é transformar o celular ou tablet em um **copiloto de palco**, reduzindo improvisos, erros e distrações, e aumentando a qualidade da performance.
 
@@ -26,7 +26,7 @@ Isso gera:
 - Shows menos fluidos
 - Estresse durante a apresentação
 
-O StageFlow centraliza tudo em um único lugar.
+O SetLive centraliza tudo em um único lugar.
 
 ---
 
@@ -67,7 +67,7 @@ Com o StageFlow, o músico pode:
 ## 🏗️ Arquitetura (resumo)
 
 - **Frontend Mobile:** Flutter
-- **Backend:** Node.js / Django
+- **Backend:** Django
 - **Banco de dados:** PostgreSQL
 - **Tempo real:** WebSocket
 - **Integrações:** Spotify API (OAuth)
@@ -113,6 +113,6 @@ A licença será definida após a finalização do MVP.
 ## 📬 Contato
 
 Se você é músico e quer testar o app, entre em contato.  
-Feedback real é o que guia a evolução do StageFlow.
+Feedback real é o que guia a evolução do SetLive.
 
 ---
