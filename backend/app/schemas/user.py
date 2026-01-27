@@ -18,3 +18,11 @@ class UserResponse(UserBase):
 
     class Config:
         from_attributes = True
+
+class UserUpdate(BaseModel):
+    name: Optional[str]
+    email: Optional[str]
+
+    class Config:
+        from_attributes = True
+
