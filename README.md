@@ -32,7 +32,7 @@ O SetLive centraliza tudo em um único lugar.
 
 ## 💡 Solução
 
-Com o StageFlow, o músico pode:
+Com o Setlive, o músico pode:
 
 - 🎼 Criar repertórios rapidamente
 - 🎧 Importar playlists do Spotify
@@ -66,7 +66,7 @@ Com o StageFlow, o músico pode:
 
 ## 🏗️ Arquitetura (resumo)
 
-- **Frontend Mobile:** Flutter
+- **Frontend Mobile:** React
 - **Backend:** Django
 - **Banco de dados:** PostgreSQL
 - **Tempo real:** WebSocket
