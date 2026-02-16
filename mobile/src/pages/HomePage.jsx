@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { SPOTIFY_REDIRECT_URI } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import {
   addSetlistItem,
@@ -12,6 +13,13 @@ import {
   reorderSetlist,
   updateSetlist,
 } from '../services/setlistApi';
+import {
+  exchangeSpotifyCode,
+  getSpotifyAuthUrl,
+  getSpotifyStatus,
+  importSpotifyPlaylist,
+  listSpotifyPlaylists,
+} from '../services/spotifyApi';
 
 function HomePage() {
   const { logout } = useAuth();
@@ -26,35 +34,54 @@ function HomePage() {
   const [editSetlistName, setEditSetlistName] = useState('');
   const [selectedSongId, setSelectedSongId] = useState('');
 
+  const [spotifyStatus, setSpotifyStatus] = useState({ connected: false });
+  const [spotifyPlaylists, setSpotifyPlaylists] = useState([]);
+  const [selectedSpotifyPlaylistId, setSelectedSpotifyPlaylistId] = useState('');
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const activeSetlistId = activeSetlist?.id ?? null;
+  const spotifyRedirectUri = SPOTIFY_REDIRECT_URI || `${window.location.origin}/callback`;
 
   useEffect(() => {
-    async function load() {
+    async function bootstrap() {
       setIsLoading(true);
       setErrorMessage('');
 
       try {
-        const [loadedSongs, loadedSetlists] = await Promise.all([listSongs(), listSetlists()]);
+        await handleSpotifyCallback();
+
+        const [loadedSongs, loadedSetlists, status] = await Promise.all([
+          listSongs(),
+          listSetlists(),
+          getSpotifyStatus(),
+        ]);
+
         setSongs(loadedSongs);
         setSetlists(loadedSetlists);
+        setSpotifyStatus(status);
 
         if (loadedSetlists.length > 0) {
           const detail = await getSetlist(loadedSetlists[0].id);
           setActiveSetlist(detail);
           setEditSetlistName(detail.name);
         }
+
+        if (status.connected) {
+          const playlistsPayload = await listSpotifyPlaylists();
+          setSpotifyPlaylists(playlistsPayload.items ?? []);
+        }
       } catch (error) {
-        setErrorMessage(error.message || 'Falha ao carregar dados do repertorio.');
+        setErrorMessage(error.message || 'Falha ao carregar dados iniciais.');
       } finally {
         setIsLoading(false);
       }
     }
 
-    load();
+    bootstrap();
   }, []);
 
   const songsNotInSetlist = useMemo(() => {
@@ -65,6 +92,41 @@ function HomePage() {
     const inSet = new Set(activeSetlist.items.map((item) => item.song.id));
     return songs.filter((song) => !inSet.has(song.id));
   }, [songs, activeSetlist]);
+
+  async function handleSpotifyCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+
+    if (!code || !state) {
+      return;
+    }
+
+    const oauthKey = `spotify_oauth_${state}_${code}`;
+    const oauthStatus = sessionStorage.getItem(oauthKey);
+    if (oauthStatus === 'pending' || oauthStatus === 'done') {
+      const cleanUrl = '/';
+      window.history.replaceState({}, document.title, cleanUrl);
+      return;
+    }
+    sessionStorage.setItem(oauthKey, 'pending');
+
+    try {
+      await exchangeSpotifyCode({
+        code,
+        state,
+        redirectUri: spotifyRedirectUri,
+      });
+      sessionStorage.setItem(oauthKey, 'done');
+    } catch (error) {
+      sessionStorage.removeItem(oauthKey);
+      throw error;
+    }
+
+    const cleanUrl = '/';
+    window.history.replaceState({}, document.title, cleanUrl);
+    setSuccessMessage('Conta Spotify conectada com sucesso.');
+  }
 
   async function refreshSetlists(targetSetlistId = activeSetlistId) {
     const loadedSetlists = await listSetlists();
@@ -85,6 +147,67 @@ function HomePage() {
     const detail = await getSetlist(targetSetlistId);
     setActiveSetlist(detail);
     setEditSetlistName(detail.name);
+  }
+
+  async function refreshSongs() {
+    const loadedSongs = await listSongs();
+    setSongs(loadedSongs);
+  }
+
+  async function handleConnectSpotify() {
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const payload = await getSpotifyAuthUrl(spotifyRedirectUri);
+      window.location.href = payload.authorize_url;
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao iniciar conexao Spotify.');
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRefreshSpotifyPlaylists() {
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const status = await getSpotifyStatus();
+      setSpotifyStatus(status);
+      if (!status.connected) {
+        setSpotifyPlaylists([]);
+        setSelectedSpotifyPlaylistId('');
+        return;
+      }
+
+      const payload = await listSpotifyPlaylists();
+      setSpotifyPlaylists(payload.items ?? []);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao listar playlists Spotify.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleImportSpotifyPlaylist(event) {
+    event.preventDefault();
+
+    if (!selectedSpotifyPlaylistId) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+    try {
+      const imported = await importSpotifyPlaylist(selectedSpotifyPlaylistId);
+      await Promise.all([refreshSongs(), refreshSetlists(imported.setlist_id)]);
+      setSuccessMessage(
+        `Playlist importada: ${imported.setlist_name} (${imported.tracks_total} faixas, ${imported.songs_created} novas, ${imported.songs_reused} reaproveitadas).`
+      );
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao importar playlist Spotify.');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleCreateSong(event) {
@@ -258,7 +381,7 @@ function HomePage() {
     return (
       <main className="shell">
         <section className="card">
-          <p>Carregando repertorio...</p>
+          <p>Carregando dados...</p>
         </section>
       </main>
     );
@@ -270,7 +393,7 @@ function HomePage() {
         <header className="board-header">
           <div>
             <h1>SetLive</h1>
-            <p>Semana 2: repertorios e ordenacao de musicas.</p>
+            <p>Semana 3: OAuth Spotify e importacao de playlists.</p>
           </div>
           <button className="button-secondary" onClick={logout}>
             Sair
@@ -278,6 +401,45 @@ function HomePage() {
         </header>
 
         {errorMessage && <p className="error">{errorMessage}</p>}
+        {successMessage && <p className="success">{successMessage}</p>}
+
+        <section className="panel spotify-panel">
+          <h2>Spotify</h2>
+          <p>
+            Status: {spotifyStatus.connected ? `Conectado (${spotifyStatus.display_name || spotifyStatus.spotify_user_id})` : 'Nao conectado'}
+          </p>
+          <div className="row-actions">
+            <button type="button" onClick={handleConnectSpotify} disabled={isSaving}>
+              Conectar Spotify
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={handleRefreshSpotifyPlaylists}
+              disabled={isSaving || !spotifyStatus.connected}
+            >
+              Atualizar playlists
+            </button>
+          </div>
+          <form className="form-inline" onSubmit={handleImportSpotifyPlaylist}>
+            <select
+              value={selectedSpotifyPlaylistId}
+              onChange={(event) => setSelectedSpotifyPlaylistId(event.target.value)}
+              required
+              disabled={!spotifyStatus.connected}
+            >
+              <option value="">Selecione uma playlist</option>
+              {spotifyPlaylists.map((playlist) => (
+                <option key={playlist.id} value={playlist.id}>
+                  {playlist.name} ({playlist.tracks_total})
+                </option>
+              ))}
+            </select>
+            <button type="submit" disabled={isSaving || !selectedSpotifyPlaylistId}>
+              Importar
+            </button>
+          </form>
+        </section>
 
         <div className="columns">
           <section className="panel">

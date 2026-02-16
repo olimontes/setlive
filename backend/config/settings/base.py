@@ -1,8 +1,11 @@
-﻿import os
+import os
 from datetime import timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'unsafe-dev-secret-key')
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
@@ -22,6 +25,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'apps.users',
     'apps.repertoire',
+    'apps.spotify',
 ]
 
 MIDDLEWARE = [

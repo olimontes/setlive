@@ -6,8 +6,8 @@ from .models import Setlist, SetlistItem, Song
 class SongSerializer(serializers.ModelSerializer):
     class Meta:
         model = Song
-        fields = ("id", "title", "artist", "created_at")
-        read_only_fields = ("id", "created_at")
+        fields = ("id", "title", "artist", "duration_ms", "spotify_track_id", "created_at")
+        read_only_fields = ("id", "spotify_track_id", "created_at")
 
 
 class SetlistItemSerializer(serializers.ModelSerializer):

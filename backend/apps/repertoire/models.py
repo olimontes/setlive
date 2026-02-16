@@ -6,6 +6,8 @@ class Song(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="songs")
     title = models.CharField(max_length=255)
     artist = models.CharField(max_length=255, blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    spotify_track_id = models.CharField(max_length=64, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

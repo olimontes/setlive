@@ -135,6 +135,11 @@ button[disabled] {
   margin-top: 0.75rem;
 }
 
+.success {
+  color: #047857;
+  margin-top: 0.75rem;
+}
+
 .list,
 .ordered-list {
   margin: 0;
@@ -175,6 +180,11 @@ button[disabled] {
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
+}
+
+.spotify-panel {
+  min-height: auto;
+  margin-bottom: 1rem;
 }
 
 @media (max-width: 960px) {
