@@ -1,14 +1,421 @@
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import {
+  addSetlistItem,
+  createSetlist,
+  createSong,
+  deleteSetlist,
+  deleteSetlistItem,
+  getSetlist,
+  listSetlists,
+  listSongs,
+  reorderSetlist,
+  updateSetlist,
+} from '../services/setlistApi';
 
 function HomePage() {
   const { logout } = useAuth();
 
+  const [songs, setSongs] = useState([]);
+  const [setlists, setSetlists] = useState([]);
+  const [activeSetlist, setActiveSetlist] = useState(null);
+
+  const [newSongTitle, setNewSongTitle] = useState('');
+  const [newSongArtist, setNewSongArtist] = useState('');
+  const [newSetlistName, setNewSetlistName] = useState('');
+  const [editSetlistName, setEditSetlistName] = useState('');
+  const [selectedSongId, setSelectedSongId] = useState('');
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const activeSetlistId = activeSetlist?.id ?? null;
+
+  useEffect(() => {
+    async function load() {
+      setIsLoading(true);
+      setErrorMessage('');
+
+      try {
+        const [loadedSongs, loadedSetlists] = await Promise.all([listSongs(), listSetlists()]);
+        setSongs(loadedSongs);
+        setSetlists(loadedSetlists);
+
+        if (loadedSetlists.length > 0) {
+          const detail = await getSetlist(loadedSetlists[0].id);
+          setActiveSetlist(detail);
+          setEditSetlistName(detail.name);
+        }
+      } catch (error) {
+        setErrorMessage(error.message || 'Falha ao carregar dados do repertorio.');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    load();
+  }, []);
+
+  const songsNotInSetlist = useMemo(() => {
+    if (!activeSetlist) {
+      return songs;
+    }
+
+    const inSet = new Set(activeSetlist.items.map((item) => item.song.id));
+    return songs.filter((song) => !inSet.has(song.id));
+  }, [songs, activeSetlist]);
+
+  async function refreshSetlists(targetSetlistId = activeSetlistId) {
+    const loadedSetlists = await listSetlists();
+    setSetlists(loadedSetlists);
+
+    if (!targetSetlistId) {
+      setActiveSetlist(null);
+      return;
+    }
+
+    const exists = loadedSetlists.some((setlist) => setlist.id === targetSetlistId);
+    if (!exists) {
+      setActiveSetlist(null);
+      setEditSetlistName('');
+      return;
+    }
+
+    const detail = await getSetlist(targetSetlistId);
+    setActiveSetlist(detail);
+    setEditSetlistName(detail.name);
+  }
+
+  async function handleCreateSong(event) {
+    event.preventDefault();
+
+    if (!newSongTitle.trim()) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const created = await createSong({
+        title: newSongTitle.trim(),
+        artist: newSongArtist.trim(),
+      });
+      const nextSongs = [...songs, created].sort((a, b) => a.title.localeCompare(b.title));
+      setSongs(nextSongs);
+      setNewSongTitle('');
+      setNewSongArtist('');
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao criar musica.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleCreateSetlist(event) {
+    event.preventDefault();
+
+    if (!newSetlistName.trim()) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const created = await createSetlist({ name: newSetlistName.trim() });
+      setNewSetlistName('');
+      await refreshSetlists(created.id);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao criar repertorio.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleSelectSetlist(setlistId) {
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const detail = await getSetlist(setlistId);
+      setActiveSetlist(detail);
+      setEditSetlistName(detail.name);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao carregar repertorio.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRenameSetlist(event) {
+    event.preventDefault();
+
+    if (!activeSetlistId || !editSetlistName.trim()) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      await updateSetlist(activeSetlistId, { name: editSetlistName.trim() });
+      await refreshSetlists(activeSetlistId);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao atualizar repertorio.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteSetlist() {
+    if (!activeSetlistId) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      await deleteSetlist(activeSetlistId);
+      const fallbackId = setlists.find((setlist) => setlist.id !== activeSetlistId)?.id ?? null;
+      await refreshSetlists(fallbackId);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao remover repertorio.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleAddSongToSetlist(event) {
+    event.preventDefault();
+
+    if (!activeSetlistId || !selectedSongId) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      await addSetlistItem(activeSetlistId, Number(selectedSongId));
+      setSelectedSongId('');
+      await refreshSetlists(activeSetlistId);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao adicionar musica ao repertorio.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleMoveItem(itemId, direction) {
+    if (!activeSetlistId || !activeSetlist) {
+      return;
+    }
+
+    const items = [...activeSetlist.items];
+    const index = items.findIndex((item) => item.id === itemId);
+    if (index < 0) {
+      return;
+    }
+
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= items.length) {
+      return;
+    }
+
+    const [moved] = items.splice(index, 1);
+    items.splice(targetIndex, 0, moved);
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const detail = await reorderSetlist(
+        activeSetlistId,
+        items.map((item) => item.id)
+      );
+      setActiveSetlist(detail);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao reordenar repertorio.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRemoveItem(itemId) {
+    if (!activeSetlistId) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      await deleteSetlistItem(itemId);
+      await refreshSetlists(activeSetlistId);
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao remover item.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <main className="shell">
+        <section className="card">
+          <p>Carregando repertorio...</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
-    <main className="shell">
-      <section className="card">
-        <h1>SetLive</h1>
-        <p>Sessao ativa com sucesso.</p>
-        <button onClick={logout}>Sair</button>
+    <main className="shell shell-wide">
+      <section className="card board">
+        <header className="board-header">
+          <div>
+            <h1>SetLive</h1>
+            <p>Semana 2: repertorios e ordenacao de musicas.</p>
+          </div>
+          <button className="button-secondary" onClick={logout}>
+            Sair
+          </button>
+        </header>
+
+        {errorMessage && <p className="error">{errorMessage}</p>}
+
+        <div className="columns">
+          <section className="panel">
+            <h2>Repertorios</h2>
+            <form className="form-inline" onSubmit={handleCreateSetlist}>
+              <input
+                value={newSetlistName}
+                onChange={(event) => setNewSetlistName(event.target.value)}
+                placeholder="Novo repertorio"
+                required
+              />
+              <button disabled={isSaving}>Criar</button>
+            </form>
+
+            <ul className="list">
+              {setlists.map((setlist) => (
+                <li key={setlist.id}>
+                  <button
+                    className={`list-button ${setlist.id === activeSetlistId ? 'active' : ''}`}
+                    onClick={() => handleSelectSetlist(setlist.id)}
+                    disabled={isSaving}
+                  >
+                    {setlist.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="panel">
+            <h2>Musicas</h2>
+            <form className="form-stack" onSubmit={handleCreateSong}>
+              <input
+                value={newSongTitle}
+                onChange={(event) => setNewSongTitle(event.target.value)}
+                placeholder="Titulo"
+                required
+              />
+              <input
+                value={newSongArtist}
+                onChange={(event) => setNewSongArtist(event.target.value)}
+                placeholder="Artista"
+              />
+              <button disabled={isSaving}>Adicionar musica</button>
+            </form>
+
+            <ul className="list compact">
+              {songs.map((song) => (
+                <li key={song.id}>
+                  <span>
+                    {song.title}
+                    {song.artist ? ` - ${song.artist}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="panel">
+            <h2>Set atual</h2>
+            {!activeSetlist ? (
+              <p>Crie ou selecione um repertorio.</p>
+            ) : (
+              <>
+                <form className="form-inline" onSubmit={handleRenameSetlist}>
+                  <input
+                    value={editSetlistName}
+                    onChange={(event) => setEditSetlistName(event.target.value)}
+                    required
+                  />
+                  <button disabled={isSaving}>Salvar nome</button>
+                  <button
+                    type="button"
+                    className="button-danger"
+                    onClick={handleDeleteSetlist}
+                    disabled={isSaving}
+                  >
+                    Excluir
+                  </button>
+                </form>
+
+                <form className="form-inline" onSubmit={handleAddSongToSetlist}>
+                  <select
+                    value={selectedSongId}
+                    onChange={(event) => setSelectedSongId(event.target.value)}
+                    required
+                  >
+                    <option value="">Selecione uma musica</option>
+                    {songsNotInSetlist.map((song) => (
+                      <option key={song.id} value={song.id}>
+                        {song.title}
+                        {song.artist ? ` - ${song.artist}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button disabled={isSaving || songsNotInSetlist.length === 0}>Adicionar ao set</button>
+                </form>
+
+                <ol className="ordered-list">
+                  {activeSetlist.items.map((item, index) => (
+                    <li key={item.id}>
+                      <span>
+                        {item.song.title}
+                        {item.song.artist ? ` - ${item.song.artist}` : ''}
+                      </span>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={isSaving || index === 0}
+                          onClick={() => handleMoveItem(item.id, -1)}
+                        >
+                          Subir
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={isSaving || index === activeSetlist.items.length - 1}
+                          onClick={() => handleMoveItem(item.id, 1)}
+                        >
+                          Descer
+                        </button>
+                        <button
+                          type="button"
+                          className="button-danger"
+                          disabled={isSaving}
+                          onClick={() => handleRemoveItem(item.id)}
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+          </section>
+        </div>
       </section>
     </main>
   );

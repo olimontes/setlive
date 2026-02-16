@@ -1,9 +1,12 @@
-# SetLive Frontend
+ï»¿# SetLive Frontend
 
-Base React para o MVP com foco na Semana 1:
-- fluxo de autenticação (login/cadastro)
+Base React para o MVP com foco nas Semanas 1 e 2:
+- fluxo de autenticacao (login/cadastro)
 - armazenamento local de tokens
-- restauração de sessão ao abrir o app
+- restauracao de sessao ao abrir o app
+- criacao de musicas
+- criacao e edicao de repertorios
+- ordenacao e remocao de musicas no repertorio
 
 ## Executar
 
@@ -11,7 +14,7 @@ Base React para o MVP com foco na Semana 1:
 2. `npm install`
 3. `npm run dev`
 
-## Configuração
+## Configuracao
 
-A URL da API está em `src/config/api.js`.
-Para trocar o endpoint sem editar código, use `VITE_API_BASE_URL`.
+A URL da API esta em `src/config/api.js`.
+Para trocar o endpoint sem editar codigo, use `VITE_API_ROOT` (exemplo: `http://localhost:8000/api`).

@@ -1,10 +1,18 @@
-import { API_BASE_URL } from '../config/api';
+ï»¿import { AUTH_API_BASE_URL } from '../config/api';
 
 async function parseError(response, fallback) {
   try {
     const body = await response.json();
     if (body?.detail) {
       return body.detail;
+    }
+
+    if (typeof body === 'object' && body !== null) {
+      const firstField = Object.keys(body)[0];
+      const firstValue = body[firstField];
+      if (Array.isArray(firstValue) && firstValue.length > 0) {
+        return String(firstValue[0]);
+      }
     }
   } catch {
     // no-op
@@ -13,7 +21,7 @@ async function parseError(response, fallback) {
 }
 
 export async function login({ email, password }) {
-  const response = await fetch(`${API_BASE_URL}/login/`, {
+  const response = await fetch(`${AUTH_API_BASE_URL}/login/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -28,7 +36,7 @@ export async function login({ email, password }) {
 }
 
 export async function register({ email, password, firstName, lastName }) {
-  const response = await fetch(`${API_BASE_URL}/register/`, {
+  const response = await fetch(`${AUTH_API_BASE_URL}/register/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -48,13 +56,13 @@ export async function register({ email, password, firstName, lastName }) {
 }
 
 export async function me(accessToken) {
-  const response = await fetch(`${API_BASE_URL}/me/`, {
+  const response = await fetch(`${AUTH_API_BASE_URL}/me/`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
   });
 
   if (!response.ok) {
-    throw new Error('Sessão inválida.');
+    throw new Error('Sessao invalida.');
   }
 }

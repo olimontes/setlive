@@ -51,7 +51,7 @@ Entregas:
 - CRUD de repertório (criar, listar, editar, remover)
 - adição manual de músicas
 - ordenação de músicas no repertório
-- primeiras telas de gerenciamento no Flutter
+- primeiras telas de gerenciamento no React
 
 Critérios de aceite:
 - usuário consegue montar repertório completo no app
