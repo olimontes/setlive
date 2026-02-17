@@ -29,6 +29,12 @@ import {
   savePendingMutations,
 } from '../services/offlineStorage';
 import { readTokens } from '../services/tokenStorage';
+import {
+  filterSongsNotInSetlist,
+  idsReadyToAdd,
+  mergeSelectionWithSongs,
+  pruneSelectedSongIds,
+} from '../utils/songSelection';
 
 function toWebSocketBaseUrl() {
   if (API_ROOT.startsWith('https://')) {
@@ -476,19 +482,13 @@ function HomePage() {
   }, [isOnline, pendingCount]);
 
   const songsNotInSetlist = useMemo(() => {
-    if (!activeSetlist) {
-      return songs;
-    }
-
-    const inSet = new Set(activeSetlist.items.map((item) => item.song.id));
-    return songs.filter((song) => !inSet.has(song.id));
-  }, [songs, activeSetlist]);
+    return filterSongsNotInSetlist(songs, activeSetlist?.items ?? []);
+  }, [songs, activeSetlist?.items]);
 
   const filteredSongsNotInSetlist = songsNotInSetlist;
 
   useEffect(() => {
-    const availableIds = new Set(songsNotInSetlist.map((song) => song.id));
-    setSelectedLibrarySongIds((current) => current.filter((songId) => availableIds.has(songId)));
+    setSelectedLibrarySongIds((current) => pruneSelectedSongIds(current, songsNotInSetlist));
   }, [songsNotInSetlist]);
 
   function buildChordSearchUrl(song) {
@@ -973,10 +973,7 @@ function HomePage() {
   }
 
   function selectAllFilteredSongs() {
-    setSelectedLibrarySongIds((current) => {
-      const merged = new Set([...current, ...filteredSongsNotInSetlist.map((song) => song.id)]);
-      return Array.from(merged);
-    });
+    setSelectedLibrarySongIds((current) => mergeSelectionWithSongs(current, filteredSongsNotInSetlist));
   }
 
   function clearLibrarySelection() {
@@ -1032,7 +1029,7 @@ function HomePage() {
       return;
     }
 
-    const idsToAdd = selectedLibrarySongIds.filter((songId) => songsNotInSetlist.some((song) => song.id === songId));
+    const idsToAdd = idsReadyToAdd(selectedLibrarySongIds, songsNotInSetlist);
     if (idsToAdd.length === 0) {
       setSelectedLibrarySongIds([]);
       return;

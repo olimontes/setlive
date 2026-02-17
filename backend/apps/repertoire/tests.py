@@ -48,3 +48,50 @@ class AudienceRequestsFlowTests(TestCase):
             format="json",
         )
         self.assertEqual(second_response.status_code, 429)
+
+
+class RepertoireSecurityTests(TestCase):
+    def setUp(self):
+        self.user_a = User.objects.create_user(email="a@example.com", password="strongpass123")
+        self.user_b = User.objects.create_user(email="b@example.com", password="strongpass123")
+
+        self.song_a = Song.objects.create(user=self.user_a, title="Song A", artist="Artist A")
+        self.song_b = Song.objects.create(user=self.user_b, title="Song B", artist="Artist B")
+
+        self.setlist_a = Setlist.objects.create(user=self.user_a, name="Set A")
+        self.setlist_b = Setlist.objects.create(user=self.user_b, name="Set B")
+
+        self.item_a = SetlistItem.objects.create(setlist=self.setlist_a, song=self.song_a, position=1)
+        SetlistPublicLink.objects.create(setlist=self.setlist_a)
+
+        self.client_a = APIClient()
+        self.client_a.force_authenticate(user=self.user_a)
+
+    def test_user_cannot_access_other_user_setlist(self):
+        response = self.client_a.get(f"/api/repertoire/setlists/{self.setlist_b.id}/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_cannot_add_other_user_song_to_setlist(self):
+        response = self.client_a.post(
+            f"/api/repertoire/setlists/{self.setlist_a.id}/items/",
+            {"song_id": self.song_b.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_cannot_delete_other_user_item(self):
+        item_b = SetlistItem.objects.create(setlist=self.setlist_b, song=self.song_b, position=1)
+        response = self.client_a.delete(f"/api/repertoire/items/{item_b.id}/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_song_list_supports_search_and_pagination(self):
+        Song.objects.create(user=self.user_a, title="Another Song", artist="Artist A")
+        Song.objects.create(user=self.user_a, title="Ballad", artist="Someone")
+
+        response = self.client_a.get("/api/repertoire/songs/?search=song&page=1&page_size=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["page"], 1)
+        self.assertEqual(response.data["page_size"], 1)
+        self.assertEqual(response.data["total"], 2)
+        self.assertTrue(response.data["has_next"])
+        self.assertEqual(len(response.data["items"]), 1)
