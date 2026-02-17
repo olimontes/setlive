@@ -187,6 +187,145 @@ button[disabled] {
   margin-bottom: 1rem;
 }
 
+.muted {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.stage-shell {
+  min-height: 100vh;
+  background: #020617;
+  color: #f8fafc;
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  grid-template-areas:
+    'header header'
+    'main queue'
+    'setlist setlist';
+}
+
+.stage-header {
+  grid-area: header;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  background: #0f172a;
+}
+
+.stage-tag {
+  margin: 0;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #facc15;
+}
+
+.stage-main {
+  grid-area: main;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 1.5rem;
+  background: #0b1224;
+}
+
+.stage-position {
+  margin: 0;
+  font-size: 1rem;
+  color: #cbd5e1;
+}
+
+.stage-song-title {
+  margin-top: 0.75rem;
+  font-size: clamp(2rem, 5.2vw, 4rem);
+  line-height: 1.1;
+}
+
+.stage-song-artist {
+  margin-top: 0.5rem;
+  font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+  color: #cbd5e1;
+}
+
+.stage-links {
+  margin-top: 1.25rem;
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.stage-link-button {
+  display: inline-block;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  background: #111827;
+  color: #f8fafc;
+  text-decoration: none;
+  font-size: 1rem;
+  padding: 0.75rem 1rem;
+}
+
+.stage-link-button:hover {
+  border-color: #facc15;
+}
+
+.stage-nav {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.stage-nav button {
+  font-size: clamp(1rem, 2.6vw, 1.4rem);
+  padding: 0.95rem 1rem;
+  border-radius: 12px;
+}
+
+.stage-queue {
+  grid-area: queue;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 1rem;
+  background: #0b1224;
+}
+
+.stage-queue h3,
+.stage-setlist h3 {
+  margin-bottom: 0.75rem;
+}
+
+.stage-setlist {
+  grid-area: setlist;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 1rem;
+  background: #0b1224;
+}
+
+.stage-setlist-grid {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.stage-item-button {
+  background: #1e293b;
+  color: #e2e8f0;
+  text-align: left;
+}
+
+.stage-item-button.active {
+  background: #facc15;
+  color: #0f172a;
+}
+
 @media (max-width: 960px) {
   .columns {
     grid-template-columns: 1fr;
@@ -197,6 +336,27 @@ button[disabled] {
   }
 
   .form-inline {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-shell {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'header'
+      'main'
+      'queue'
+      'setlist';
+    padding: 0.75rem;
+  }
+
+  .stage-header,
+  .stage-main,
+  .stage-queue,
+  .stage-setlist {
+    padding: 1rem;
+  }
+
+  .stage-nav {
     grid-template-columns: 1fr;
   }
 }

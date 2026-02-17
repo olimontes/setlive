@@ -51,6 +51,8 @@ function HomePage() {
   const [audienceLink, setAudienceLink] = useState(null);
   const [requestQueue, setRequestQueue] = useState([]);
   const [queueConnectionStatus, setQueueConnectionStatus] = useState('disconnected');
+  const [isStageMode, setIsStageMode] = useState(false);
+  const [stageItemIndex, setStageItemIndex] = useState(0);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -61,6 +63,8 @@ function HomePage() {
   const reconnectTimerRef = useRef(null);
 
   const activeSetlistId = activeSetlist?.id ?? null;
+  const stageItems = activeSetlist?.items ?? [];
+  const currentStageItem = stageItems[stageItemIndex] ?? null;
   const spotifyRedirectUri = SPOTIFY_REDIRECT_URI || `${window.location.origin}/callback`;
 
   useEffect(() => {
@@ -225,6 +229,44 @@ function HomePage() {
     return () => clearInterval(intervalId);
   }, [activeSetlistId]);
 
+  useEffect(() => {
+    if (!isStageMode) {
+      return;
+    }
+    if (!activeSetlist || stageItems.length === 0) {
+      setIsStageMode(false);
+      setStageItemIndex(0);
+      return;
+    }
+    if (stageItemIndex > stageItems.length - 1) {
+      setStageItemIndex(stageItems.length - 1);
+    }
+  }, [activeSetlist, isStageMode, stageItemIndex, stageItems.length]);
+
+  useEffect(() => {
+    if (!isStageMode) {
+      return;
+    }
+
+    function onKeyDown(event) {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goToPreviousStageSong();
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goToNextStageSong();
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeStageMode();
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isStageMode, stageItems.length]);
+
   const songsNotInSetlist = useMemo(() => {
     if (!activeSetlist) {
       return songs;
@@ -233,6 +275,35 @@ function HomePage() {
     const inSet = new Set(activeSetlist.items.map((item) => item.song.id));
     return songs.filter((song) => !inSet.has(song.id));
   }, [songs, activeSetlist]);
+
+  function buildChordSearchUrl(song) {
+    if (!song) {
+      return '#';
+    }
+    const query = encodeURIComponent(`${song.title} ${song.artist ?? ''}`.trim());
+    return `https://www.cifraclub.com.br/?q=${query}`;
+  }
+
+  function buildLyricsSearchUrl(song) {
+    if (!song) {
+      return '#';
+    }
+    const query = encodeURIComponent(`${song.title} ${song.artist ?? ''} letra`.trim());
+    return `https://www.google.com/search?q=${query}`;
+  }
+
+  function buildRequestSearchPayload(request) {
+    if (request.song?.title) {
+      return {
+        title: request.song.title,
+        artist: request.song.artist ?? '',
+      };
+    }
+    return {
+      title: request.requested_song_name ?? '',
+      artist: '',
+    };
+  }
 
   async function handleSpotifyCallback() {
     const params = new URLSearchParams(window.location.search);
@@ -530,11 +601,130 @@ function HomePage() {
     }
   }
 
+  function openStageMode(startIndex = 0) {
+    if (!activeSetlist || stageItems.length === 0) {
+      return;
+    }
+    const safeIndex = Math.min(Math.max(startIndex, 0), stageItems.length - 1);
+    setStageItemIndex(safeIndex);
+    setIsStageMode(true);
+  }
+
+  function closeStageMode() {
+    setIsStageMode(false);
+  }
+
+  function goToPreviousStageSong() {
+    setStageItemIndex((current) => Math.max(current - 1, 0));
+  }
+
+  function goToNextStageSong() {
+    setStageItemIndex((current) => Math.min(current + 1, Math.max(stageItems.length - 1, 0)));
+  }
+
   if (isLoading) {
     return (
       <main className="shell">
         <section className="card">
           <p>Carregando dados...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (isStageMode) {
+    return (
+      <main className="stage-shell">
+        <section className="stage-header">
+          <div>
+            <p className="stage-tag">Modo palco</p>
+            <h1>{activeSetlist?.name ?? 'Sem repertorio'}</h1>
+          </div>
+          <button className="button-secondary" onClick={closeStageMode}>
+            Sair do modo palco
+          </button>
+        </section>
+
+        <section className="stage-main">
+          <p className="stage-position">
+            Musica {stageItemIndex + 1} de {stageItems.length}
+          </p>
+          <h2 className="stage-song-title">{currentStageItem?.song.title ?? 'Sem musica'}</h2>
+          <p className="stage-song-artist">{currentStageItem?.song.artist || 'Artista nao informado'}</p>
+
+          <div className="stage-links">
+            <a
+              href={buildChordSearchUrl(currentStageItem?.song)}
+              target="_blank"
+              rel="noreferrer"
+              className="stage-link-button"
+            >
+              Abrir cifra
+            </a>
+            <a
+              href={buildLyricsSearchUrl(currentStageItem?.song)}
+              target="_blank"
+              rel="noreferrer"
+              className="stage-link-button"
+            >
+              Abrir letra
+            </a>
+          </div>
+
+          <div className="stage-nav">
+            <button onClick={goToPreviousStageSong} disabled={stageItemIndex === 0}>
+              Anterior
+            </button>
+            <button onClick={goToNextStageSong} disabled={stageItemIndex >= stageItems.length - 1}>
+              Proxima
+            </button>
+          </div>
+        </section>
+
+        <section className="stage-queue">
+          <h3>Fila de pedidos</h3>
+          <ul className="list compact">
+            {requestQueue.slice(0, 5).map((request) => (
+              <li key={request.id}>
+                <strong>{request.requested_song_name || request.song?.title || 'Musica nao informada'}</strong>
+                {request.requester_name ? ` (por ${request.requester_name})` : ''}
+                <div className="row-actions">
+                  <a
+                    href={buildChordSearchUrl(buildRequestSearchPayload(request))}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="stage-link-button"
+                  >
+                    Cifra
+                  </a>
+                  <a
+                    href={buildLyricsSearchUrl(buildRequestSearchPayload(request))}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="stage-link-button"
+                  >
+                    Letra
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="stage-setlist">
+          <h3>Navegacao rapida</h3>
+          <div className="stage-setlist-grid">
+            {stageItems.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`stage-item-button ${index === stageItemIndex ? 'active' : ''}`}
+                onClick={() => setStageItemIndex(index)}
+              >
+                {index + 1}. {item.song.title}
+              </button>
+            ))}
+          </div>
         </section>
       </main>
     );
@@ -546,7 +736,7 @@ function HomePage() {
         <header className="board-header">
           <div>
             <h1>SetLive</h1>
-            <p>Semana 4: pedidos do publico em tempo real.</p>
+            <p>Semana 5: modo palco para conduzir o set ao vivo.</p>
           </div>
           <button className="button-secondary" onClick={logout}>
             Sair
@@ -657,6 +847,17 @@ function HomePage() {
               <p>Crie ou selecione um repertorio.</p>
             ) : (
               <>
+                <div className="row-actions">
+                  <button
+                    type="button"
+                    onClick={() => openStageMode(0)}
+                    disabled={activeSetlist.items.length === 0}
+                  >
+                    Abrir modo palco
+                  </button>
+                  <p className="muted">No modo palco, os controles de configuracao ficam ocultos.</p>
+                </div>
+
                 <form className="form-inline" onSubmit={handleRenameSetlist}>
                   <input
                     value={editSetlistName}
@@ -717,6 +918,13 @@ function HomePage() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => openStageMode(index)}
+                          disabled={isSaving}
+                        >
+                          Tocar agora
+                        </button>
+                        <button
+                          type="button"
                           className="button-danger"
                           disabled={isSaving}
                           onClick={() => handleRemoveItem(item.id)}
@@ -757,6 +965,24 @@ function HomePage() {
                       <strong>{request.requested_song_name || request.song?.title || 'Musica nao informada'}</strong>
                       {request.song?.artist ? ` - ${request.song.artist}` : ''}
                       {request.requester_name ? ` (por ${request.requester_name})` : ''}
+                      <div className="row-actions">
+                        <a
+                          href={buildChordSearchUrl(buildRequestSearchPayload(request))}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="stage-link-button"
+                        >
+                          Cifra
+                        </a>
+                        <a
+                          href={buildLyricsSearchUrl(buildRequestSearchPayload(request))}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="stage-link-button"
+                        >
+                          Letra
+                        </a>
+                      </div>
                     </li>
                   ))}
                 </ul>
