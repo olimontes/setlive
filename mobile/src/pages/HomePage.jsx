@@ -43,6 +43,17 @@ function toWebSocketBaseUrl() {
   return API_ROOT.replace('http://', 'ws://').replace(/\/api$/, '');
 }
 
+function toCifraSlug(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
 function isNetworkError(error) {
   const message = String(error?.message ?? '').toLowerCase();
   return message.includes('failed to fetch') || message.includes('network') || message.includes('offline');
@@ -495,10 +506,9 @@ function HomePage() {
     if (!song) {
       return '#';
     }
-    // Mobile deep links may open the Cifra Club app home only.
-    // Google with site filter tends to open the exact song page more reliably.
-    const query = encodeURIComponent(`site:cifraclub.com.br ${song.title} ${song.artist ?? ''} cifra`.trim());
-    return `https://www.google.com/search?q=${query}`;
+    const artistSlug = toCifraSlug(song.artist || 'desconhecido');
+    const titleSlug = toCifraSlug(song.title);
+    return `https://www.cifraclub.com.br/${artistSlug}/${titleSlug}/`;
   }
 
   function buildLyricsSearchUrl(song) {
