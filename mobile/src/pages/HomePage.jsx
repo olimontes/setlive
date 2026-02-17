@@ -13,6 +13,7 @@ import {
   listSetlists,
   listSongs,
   reorderSetlist,
+  updateSong,
   updateSetlist,
 } from '../services/setlistApi';
 import {
@@ -506,6 +507,9 @@ function HomePage() {
     if (!song) {
       return '#';
     }
+    if (song.chord_url) {
+      return song.chord_url;
+    }
     const artistSlug = toCifraSlug(song.artist || 'desconhecido');
     const titleSlug = toCifraSlug(song.title);
     return `https://www.cifraclub.com.br/${artistSlug}/${titleSlug}/imprimir.html`;
@@ -524,12 +528,60 @@ function HomePage() {
       return {
         title: request.song.title,
         artist: request.song.artist ?? '',
+        chord_url: request.song.chord_url ?? '',
       };
     }
     return {
       title: request.requested_song_name ?? '',
       artist: '',
+      chord_url: '',
     };
+  }
+
+  async function handleSetChordUrl(song) {
+    if (!song?.id || isSaving) {
+      return;
+    }
+    const currentUrl = song.chord_url ?? '';
+    const typed = window.prompt('Cole a URL direta da cifra para esta musica:', currentUrl);
+    if (typed === null) {
+      return;
+    }
+    const nextUrl = typed.trim();
+    if (nextUrl && !/^https?:\/\//i.test(nextUrl)) {
+      setErrorMessage('A URL da cifra deve comecar com http:// ou https://');
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const updatedSong = await updateSong(song.id, { chord_url: nextUrl });
+      setSongs((current) => current.map((item) => (item.id === updatedSong.id ? updatedSong : item)));
+      setActiveSetlist((current) => {
+        if (!current) {
+          return current;
+        }
+        return {
+          ...current,
+          items: current.items.map((item) =>
+            item.song.id === updatedSong.id ? { ...item, song: { ...item.song, chord_url: updatedSong.chord_url } } : item
+          ),
+        };
+      });
+      setRequestQueue((current) =>
+        current.map((request) =>
+          request.song?.id === updatedSong.id
+            ? { ...request, song: { ...request.song, chord_url: updatedSong.chord_url } }
+            : request
+        )
+      );
+      setSuccessMessage(nextUrl ? 'Link de cifra atualizado.' : 'Link de cifra removido.');
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao atualizar link da cifra.');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function applyPendingMutation(mutation, idMaps) {
@@ -1227,6 +1279,14 @@ function HomePage() {
             >
               Abrir cifra
             </a>
+            <button
+              type="button"
+              className="stage-link-button"
+              onClick={() => handleSetChordUrl(currentStageItem?.song)}
+              disabled={!currentStageItem?.song || isSaving}
+            >
+              Definir cifra
+            </button>
             <a
               href={buildLyricsSearchUrl(currentStageItem?.song)}
               target="_blank"
@@ -1487,6 +1547,14 @@ function HomePage() {
                         {item.song.artist ? ` - ${item.song.artist}` : ''}
                       </span>
                       <div className="row-actions">
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          disabled={isSaving}
+                          onClick={() => handleSetChordUrl(item.song)}
+                        >
+                          Definir cifra
+                        </button>
                         <button
                           type="button"
                           className="button-secondary"

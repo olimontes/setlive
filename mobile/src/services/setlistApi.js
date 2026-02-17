@@ -106,6 +106,17 @@ export function createSong({ title, artist }) {
   );
 }
 
+export function updateSong(songId, payload) {
+  return requestJson(
+    `${REPERTOIRE_API_BASE_URL}/songs/${songId}/`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+    'Falha ao atualizar musica.'
+  );
+}
+
 export function listSetlists() {
   return requestJson(`${REPERTOIRE_API_BASE_URL}/setlists/`, {}, 'Falha ao listar repertorios.');
 }
