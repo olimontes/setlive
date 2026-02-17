@@ -495,8 +495,10 @@ function HomePage() {
     if (!song) {
       return '#';
     }
-    const query = encodeURIComponent(`${song.title} ${song.artist ?? ''}`.trim());
-    return `https://www.cifraclub.com.br/?q=${query}`;
+    // Mobile deep links may open the Cifra Club app home only.
+    // Google with site filter tends to open the exact song page more reliably.
+    const query = encodeURIComponent(`site:cifraclub.com.br ${song.title} ${song.artist ?? ''} cifra`.trim());
+    return `https://www.google.com/search?q=${query}`;
   }
 
   function buildLyricsSearchUrl(song) {
