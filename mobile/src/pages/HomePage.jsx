@@ -508,7 +508,7 @@ function HomePage() {
     }
     const artistSlug = toCifraSlug(song.artist || 'desconhecido');
     const titleSlug = toCifraSlug(song.title);
-    return `https://www.cifraclub.com.br/${artistSlug}/${titleSlug}/`;
+    return `https://www.cifraclub.com.br/${artistSlug}/${titleSlug}/imprimir.html`;
   }
 
   function buildLyricsSearchUrl(song) {
