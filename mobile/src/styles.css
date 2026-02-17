@@ -193,6 +193,27 @@ button[disabled] {
   font-size: 0.9rem;
 }
 
+.status-banner {
+  margin-bottom: 0.75rem;
+  border-radius: 10px;
+  padding: 0.75rem;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.status-banner.online {
+  background: #ecfeff;
+  border-color: #99f6e4;
+}
+
+.status-banner.offline {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
 .stage-shell {
   min-height: 100vh;
   background: #020617;

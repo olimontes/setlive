@@ -22,6 +22,12 @@ import {
   importSpotifyPlaylist,
   listSpotifyPlaylists,
 } from '../services/spotifyApi';
+import {
+  loadOfflineSnapshot,
+  loadPendingMutations,
+  saveOfflineSnapshot,
+  savePendingMutations,
+} from '../services/offlineStorage';
 import { readTokens } from '../services/tokenStorage';
 
 function toWebSocketBaseUrl() {
@@ -29,6 +35,15 @@ function toWebSocketBaseUrl() {
     return API_ROOT.replace('https://', 'wss://').replace(/\/api$/, '');
   }
   return API_ROOT.replace('http://', 'ws://').replace(/\/api$/, '');
+}
+
+function isNetworkError(error) {
+  const message = String(error?.message ?? '').toLowerCase();
+  return message.includes('failed to fetch') || message.includes('network') || message.includes('offline');
+}
+
+function createTempId() {
+  return -Math.floor(Date.now() + Math.random() * 1000);
 }
 
 function HomePage() {
@@ -53,6 +68,9 @@ function HomePage() {
   const [queueConnectionStatus, setQueueConnectionStatus] = useState('disconnected');
   const [isStageMode, setIsStageMode] = useState(false);
   const [stageItemIndex, setStageItemIndex] = useState(0);
+  const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
+  const [isSyncingPending, setIsSyncingPending] = useState(false);
+  const [pendingMutations, setPendingMutations] = useState(() => loadPendingMutations());
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -66,6 +84,37 @@ function HomePage() {
   const stageItems = activeSetlist?.items ?? [];
   const currentStageItem = stageItems[stageItemIndex] ?? null;
   const spotifyRedirectUri = SPOTIFY_REDIRECT_URI || `${window.location.origin}/callback`;
+  const pendingCount = pendingMutations.length;
+
+  function persistPendingMutations(nextPending) {
+    setPendingMutations(nextPending);
+    savePendingMutations(nextPending);
+  }
+
+  function queueMutation(type, payload) {
+    setPendingMutations((current) => {
+      const nextPending = [
+        ...current,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          type,
+          payload,
+        },
+      ];
+      savePendingMutations(nextPending);
+      return nextPending;
+    });
+  }
+
+  function updateSetlistInLocalState(setlistId, updater) {
+    setSetlists((current) => current.map((setlist) => (setlist.id === setlistId ? updater(setlist) : setlist)));
+    setActiveSetlist((current) => {
+      if (!current || current.id !== setlistId) {
+        return current;
+      }
+      return updater(current);
+    });
+  }
 
   useEffect(() => {
     async function bootstrap() {
@@ -73,30 +122,57 @@ function HomePage() {
       setErrorMessage('');
 
       try {
+        if (!window.navigator.onLine) {
+          throw new Error('offline');
+        }
+
         await handleSpotifyCallback();
 
-        const [loadedSongs, loadedSetlists, status] = await Promise.all([
-          listSongs(),
-          listSetlists(),
-          getSpotifyStatus(),
-        ]);
+        const [loadedSongs, loadedSetlists, status] = await Promise.all([listSongs(), listSetlists(), getSpotifyStatus()]);
 
         setSongs(loadedSongs);
         setSetlists(loadedSetlists);
         setSpotifyStatus(status);
 
         if (loadedSetlists.length > 0) {
-          const detail = await getSetlist(loadedSetlists[0].id);
-          setActiveSetlist(detail);
-          setEditSetlistName(detail.name);
+          const detailEntries = await Promise.all(
+            loadedSetlists.map(async (setlist) => [setlist.id, await getSetlist(setlist.id)])
+          );
+          const detailById = Object.fromEntries(detailEntries);
+          const firstDetail = detailById[loadedSetlists[0].id];
+          setActiveSetlist(firstDetail);
+          setEditSetlistName(firstDetail.name);
+          saveOfflineSnapshot({
+            songs: loadedSongs,
+            setlists: loadedSetlists,
+            activeSetlistId: firstDetail.id,
+            setlistDetailsById: detailById,
+            updatedAt: new Date().toISOString(),
+          });
+        } else {
+          setActiveSetlist(null);
+          setEditSetlistName('');
         }
 
         if (status.connected) {
           const playlistsPayload = await listSpotifyPlaylists();
           setSpotifyPlaylists(playlistsPayload.items ?? []);
+        } else {
+          setSpotifyPlaylists([]);
         }
       } catch (error) {
-        setErrorMessage(error.message || 'Falha ao carregar dados iniciais.');
+        const snapshot = loadOfflineSnapshot();
+        if (snapshot) {
+          setSongs(snapshot.songs ?? []);
+          setSetlists(snapshot.setlists ?? []);
+          const cachedActiveId = snapshot.activeSetlistId ?? null;
+          const cachedActive = (snapshot.setlistDetailsById ?? {})[cachedActiveId] ?? null;
+          setActiveSetlist(cachedActive);
+          setEditSetlistName(cachedActive?.name ?? '');
+          setErrorMessage('Modo offline ativo. Dados carregados do cache local.');
+        } else {
+          setErrorMessage(error.message || 'Falha ao carregar dados iniciais.');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -106,13 +182,49 @@ function HomePage() {
   }, []);
 
   useEffect(() => {
+    function goOnline() {
+      setIsOnline(true);
+    }
+
+    function goOffline() {
+      setIsOnline(false);
+      setQueueConnectionStatus('offline');
+    }
+
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentSnapshot = loadOfflineSnapshot() ?? { setlistDetailsById: {} };
+    const nextSetlistDetails = { ...(currentSnapshot.setlistDetailsById ?? {}) };
+    if (activeSetlist?.id) {
+      nextSetlistDetails[activeSetlist.id] = activeSetlist;
+    }
+    saveOfflineSnapshot({
+      songs,
+      setlists,
+      activeSetlistId: activeSetlist?.id ?? null,
+      setlistDetailsById: nextSetlistDetails,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [songs, setlists, activeSetlist]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadAudienceData(setlistId) {
-      if (!setlistId) {
+      if (!setlistId || !isOnline) {
         setAudienceLink(null);
-        setRequestQueue([]);
-        setQueueConnectionStatus('disconnected');
+        if (!setlistId) {
+          setRequestQueue([]);
+        }
+        setQueueConnectionStatus(isOnline ? 'disconnected' : 'offline');
         return;
       }
 
@@ -138,15 +250,15 @@ function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSetlistId]);
+  }, [activeSetlistId, isOnline]);
 
   useEffect(() => {
-    if (!activeSetlistId || !audienceLink?.token) {
+    if (!isOnline || !activeSetlistId || !audienceLink?.token) {
       if (queueSocketRef.current) {
         queueSocketRef.current.close();
       }
       queueSocketRef.current = null;
-      setQueueConnectionStatus('disconnected');
+      setQueueConnectionStatus(isOnline ? 'disconnected' : 'offline');
       return;
     }
 
@@ -210,10 +322,10 @@ function HomePage() {
       }
       queueSocketRef.current = null;
     };
-  }, [activeSetlistId, audienceLink?.token]);
+  }, [activeSetlistId, audienceLink?.token, isOnline]);
 
   useEffect(() => {
-    if (!activeSetlistId) {
+    if (!isOnline || !activeSetlistId) {
       return;
     }
 
@@ -227,7 +339,7 @@ function HomePage() {
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [activeSetlistId]);
+  }, [activeSetlistId, isOnline]);
 
   useEffect(() => {
     if (!isStageMode) {
@@ -267,6 +379,13 @@ function HomePage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isStageMode, stageItems.length]);
 
+  useEffect(() => {
+    if (!isOnline || pendingCount === 0) {
+      return;
+    }
+    flushPendingMutations();
+  }, [isOnline, pendingCount]);
+
   const songsNotInSetlist = useMemo(() => {
     if (!activeSetlist) {
       return songs;
@@ -305,6 +424,117 @@ function HomePage() {
     };
   }
 
+  async function applyPendingMutation(mutation, idMaps) {
+    const resolveId = (id, map) => {
+      if (id < 0 && map.has(id)) {
+        return map.get(id);
+      }
+      return id;
+    };
+
+    if (mutation.type === 'create_song') {
+      const { tempSongId, title, artist } = mutation.payload;
+      const created = await createSong({ title, artist });
+      idMaps.songId.set(tempSongId, created.id);
+      return;
+    }
+
+    if (mutation.type === 'create_setlist') {
+      const { tempSetlistId, name } = mutation.payload;
+      const created = await createSetlist({ name });
+      idMaps.setlistId.set(tempSetlistId, created.id);
+      return;
+    }
+
+    if (mutation.type === 'rename_setlist') {
+      const { setlistId, name } = mutation.payload;
+      const resolvedSetlistId = resolveId(setlistId, idMaps.setlistId);
+      if (resolvedSetlistId < 0) {
+        return;
+      }
+      await updateSetlist(resolvedSetlistId, { name });
+      return;
+    }
+
+    if (mutation.type === 'add_setlist_item') {
+      const { setlistId, songId, tempItemId } = mutation.payload;
+      const resolvedSetlistId = resolveId(setlistId, idMaps.setlistId);
+      const resolvedSongId = resolveId(songId, idMaps.songId);
+      if (resolvedSetlistId < 0 || resolvedSongId < 0) {
+        return;
+      }
+      const created = await addSetlistItem(resolvedSetlistId, resolvedSongId);
+      idMaps.itemId.set(tempItemId, created.id);
+      return;
+    }
+
+    if (mutation.type === 'delete_setlist_item') {
+      const { itemId } = mutation.payload;
+      const resolvedItemId = resolveId(itemId, idMaps.itemId);
+      if (resolvedItemId < 0) {
+        return;
+      }
+      await deleteSetlistItem(resolvedItemId);
+      return;
+    }
+
+    if (mutation.type === 'reorder_setlist') {
+      const { setlistId, itemIds } = mutation.payload;
+      const resolvedSetlistId = resolveId(setlistId, idMaps.setlistId);
+      if (resolvedSetlistId < 0) {
+        return;
+      }
+      const resolvedItemIds = itemIds.map((itemId) => resolveId(itemId, idMaps.itemId)).filter((itemId) => itemId > 0);
+      if (resolvedItemIds.length === 0) {
+        return;
+      }
+      await reorderSetlist(resolvedSetlistId, resolvedItemIds);
+    }
+  }
+
+  async function flushPendingMutations() {
+    if (!isOnline || pendingMutations.length === 0 || isSyncingPending) {
+      return;
+    }
+
+    setIsSyncingPending(true);
+    let remaining = [...pendingMutations];
+    let hadProgress = false;
+
+    const idMaps = {
+      songId: new Map(),
+      setlistId: new Map(),
+      itemId: new Map(),
+    };
+
+    while (remaining.length > 0) {
+      const current = remaining[0];
+      try {
+        await applyPendingMutation(current, idMaps);
+        remaining = remaining.slice(1);
+        hadProgress = true;
+      } catch (error) {
+        if (isNetworkError(error)) {
+          break;
+        }
+        remaining = remaining.slice(1);
+      }
+    }
+
+    persistPendingMutations(remaining);
+
+    if (hadProgress) {
+      try {
+        await Promise.all([refreshSongs(), refreshSetlists(activeSetlistId)]);
+        setSuccessMessage('Alteracoes offline sincronizadas.');
+      } catch {
+        // no-op
+      }
+    }
+
+    setIsSyncingPending(false);
+  }
+
   async function handleSpotifyCallback() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
@@ -341,6 +571,22 @@ function HomePage() {
   }
 
   async function refreshSetlists(targetSetlistId = activeSetlistId) {
+    if (!isOnline) {
+      const snapshot = loadOfflineSnapshot();
+      const cachedSetlists = snapshot?.setlists ?? [];
+      const cachedDetails = snapshot?.setlistDetailsById ?? {};
+      setSetlists(cachedSetlists);
+      if (!targetSetlistId) {
+        setActiveSetlist(null);
+        setEditSetlistName('');
+        return;
+      }
+      const detail = cachedDetails[targetSetlistId] ?? null;
+      setActiveSetlist(detail);
+      setEditSetlistName(detail?.name ?? '');
+      return;
+    }
+
     const loadedSetlists = await listSetlists();
     setSetlists(loadedSetlists);
 
@@ -362,11 +608,20 @@ function HomePage() {
   }
 
   async function refreshSongs() {
+    if (!isOnline) {
+      const snapshot = loadOfflineSnapshot();
+      setSongs(snapshot?.songs ?? []);
+      return;
+    }
     const loadedSongs = await listSongs();
     setSongs(loadedSongs);
   }
 
   async function handleConnectSpotify() {
+    if (!isOnline) {
+      setErrorMessage('Conexao Spotify indisponivel offline.');
+      return;
+    }
     setIsSaving(true);
     setErrorMessage('');
     try {
@@ -379,6 +634,10 @@ function HomePage() {
   }
 
   async function handleRefreshSpotifyPlaylists() {
+    if (!isOnline) {
+      setErrorMessage('Atualizacao de playlists indisponivel offline.');
+      return;
+    }
     setIsSaving(true);
     setErrorMessage('');
     try {
@@ -405,6 +664,10 @@ function HomePage() {
     if (!selectedSpotifyPlaylistId) {
       return;
     }
+    if (!isOnline) {
+      setErrorMessage('Importacao Spotify indisponivel offline.');
+      return;
+    }
 
     setIsSaving(true);
     setErrorMessage('');
@@ -425,7 +688,26 @@ function HomePage() {
   async function handleCreateSong(event) {
     event.preventDefault();
 
-    if (!newSongTitle.trim()) {
+    const title = newSongTitle.trim();
+    const artist = newSongArtist.trim();
+
+    if (!title) {
+      return;
+    }
+    if (!isOnline) {
+      const tempSong = {
+        id: createTempId(),
+        title,
+        artist,
+        duration_ms: null,
+        spotify_track_id: '',
+        created_at: new Date().toISOString(),
+      };
+      setSongs((current) => [...current, tempSong].sort((a, b) => a.title.localeCompare(b.title)));
+      queueMutation('create_song', { tempSongId: tempSong.id, title, artist });
+      setNewSongTitle('');
+      setNewSongArtist('');
+      setSuccessMessage('Musica criada offline. Sera sincronizada ao reconectar.');
       return;
     }
 
@@ -433,8 +715,8 @@ function HomePage() {
     setErrorMessage('');
     try {
       const created = await createSong({
-        title: newSongTitle.trim(),
-        artist: newSongArtist.trim(),
+        title,
+        artist,
       });
       const nextSongs = [...songs, created].sort((a, b) => a.title.localeCompare(b.title));
       setSongs(nextSongs);
@@ -450,14 +732,36 @@ function HomePage() {
   async function handleCreateSetlist(event) {
     event.preventDefault();
 
-    if (!newSetlistName.trim()) {
+    const name = newSetlistName.trim();
+    if (!name) {
+      return;
+    }
+    if (!isOnline) {
+      const tempSetlistId = createTempId();
+      const now = new Date().toISOString();
+      const tempSetlist = {
+        id: tempSetlistId,
+        name,
+        created_at: now,
+        updated_at: now,
+      };
+      const tempDetail = {
+        ...tempSetlist,
+        items: [],
+      };
+      setSetlists((current) => [tempSetlist, ...current]);
+      setActiveSetlist(tempDetail);
+      setEditSetlistName(name);
+      setNewSetlistName('');
+      queueMutation('create_setlist', { tempSetlistId, name });
+      setSuccessMessage('Repertorio criado offline. Sera sincronizado ao reconectar.');
       return;
     }
 
     setIsSaving(true);
     setErrorMessage('');
     try {
-      const created = await createSetlist({ name: newSetlistName.trim() });
+      const created = await createSetlist({ name });
       setNewSetlistName('');
       await refreshSetlists(created.id);
     } catch (error) {
@@ -471,7 +775,16 @@ function HomePage() {
     setIsSaving(true);
     setErrorMessage('');
     try {
-      const detail = await getSetlist(setlistId);
+      let detail;
+      if (isOnline) {
+        detail = await getSetlist(setlistId);
+      } else {
+        const snapshot = loadOfflineSnapshot();
+        detail = snapshot?.setlistDetailsById?.[setlistId] ?? null;
+        if (!detail) {
+          throw new Error('Repertorio nao disponivel no cache offline.');
+        }
+      }
       setActiveSetlist(detail);
       setEditSetlistName(detail.name);
     } catch (error) {
@@ -488,10 +801,19 @@ function HomePage() {
       return;
     }
 
+    const nextName = editSetlistName.trim();
+
+    if (!isOnline) {
+      updateSetlistInLocalState(activeSetlistId, (setlist) => ({ ...setlist, name: nextName }));
+      queueMutation('rename_setlist', { setlistId: activeSetlistId, name: nextName });
+      setSuccessMessage('Alteracao salva offline. Sera sincronizada ao reconectar.');
+      return;
+    }
+
     setIsSaving(true);
     setErrorMessage('');
     try {
-      await updateSetlist(activeSetlistId, { name: editSetlistName.trim() });
+      await updateSetlist(activeSetlistId, { name: nextName });
       await refreshSetlists(activeSetlistId);
     } catch (error) {
       setErrorMessage(error.message || 'Falha ao atualizar repertorio.');
@@ -502,6 +824,10 @@ function HomePage() {
 
   async function handleDeleteSetlist() {
     if (!activeSetlistId) {
+      return;
+    }
+    if (!isOnline) {
+      setErrorMessage('Exclusao de repertorio requer conexao online.');
       return;
     }
 
@@ -524,11 +850,47 @@ function HomePage() {
     if (!activeSetlistId || !selectedSongId) {
       return;
     }
+    const songId = Number(selectedSongId);
+    if (!Number.isFinite(songId)) {
+      return;
+    }
+    const selectedSong = songs.find((song) => song.id === songId);
+    if (!selectedSong) {
+      setErrorMessage('Musica selecionada nao encontrada.');
+      return;
+    }
+    if (activeSetlist?.items.some((item) => item.song.id === songId)) {
+      setErrorMessage('Musica ja adicionada no repertorio.');
+      return;
+    }
+
+    if (!isOnline) {
+      const tempItemId = createTempId();
+      const currentItems = activeSetlist?.items ?? [];
+      const tempItem = {
+        id: tempItemId,
+        position: currentItems.length + 1,
+        song: selectedSong,
+      };
+      setActiveSetlist((current) => {
+        if (!current || current.id !== activeSetlistId) {
+          return current;
+        }
+        return {
+          ...current,
+          items: [...current.items, tempItem],
+        };
+      });
+      setSelectedSongId('');
+      queueMutation('add_setlist_item', { setlistId: activeSetlistId, songId, tempItemId });
+      setSuccessMessage('Musica adicionada offline. Sera sincronizada ao reconectar.');
+      return;
+    }
 
     setIsSaving(true);
     setErrorMessage('');
     try {
-      await addSetlistItem(activeSetlistId, Number(selectedSongId));
+      await addSetlistItem(activeSetlistId, songId);
       setSelectedSongId('');
       await refreshSetlists(activeSetlistId);
     } catch (error) {
@@ -557,6 +919,17 @@ function HomePage() {
     const [moved] = items.splice(index, 1);
     items.splice(targetIndex, 0, moved);
 
+    if (!isOnline) {
+      const reorderedDetail = {
+        ...activeSetlist,
+        items: items.map((item, position) => ({ ...item, position: position + 1 })),
+      };
+      setActiveSetlist(reorderedDetail);
+      queueMutation('reorder_setlist', { setlistId: activeSetlistId, itemIds: items.map((item) => item.id) });
+      setSuccessMessage('Reordenacao salva offline. Sera sincronizada ao reconectar.');
+      return;
+    }
+
     setIsSaving(true);
     setErrorMessage('');
     try {
@@ -574,6 +947,21 @@ function HomePage() {
 
   async function handleRemoveItem(itemId) {
     if (!activeSetlistId) {
+      return;
+    }
+    if (!isOnline) {
+      setActiveSetlist((current) => {
+        if (!current || current.id !== activeSetlistId) {
+          return current;
+        }
+        const remaining = current.items.filter((item) => item.id !== itemId).map((item, index) => ({ ...item, position: index + 1 }));
+        return {
+          ...current,
+          items: remaining,
+        };
+      });
+      queueMutation('delete_setlist_item', { itemId, setlistId: activeSetlistId });
+      setSuccessMessage('Remocao salva offline. Sera sincronizada ao reconectar.');
       return;
     }
 
@@ -736,12 +1124,27 @@ function HomePage() {
         <header className="board-header">
           <div>
             <h1>SetLive</h1>
-            <p>Semana 5: modo palco para conduzir o set ao vivo.</p>
+            <p>Semana 6: offline e sincronizacao ao reconectar.</p>
           </div>
           <button className="button-secondary" onClick={logout}>
             Sair
           </button>
         </header>
+
+        <section className={`status-banner ${isOnline ? 'online' : 'offline'}`}>
+          <strong>{isOnline ? 'Online' : 'Offline'}</strong>
+          <span>
+            {pendingCount > 0
+              ? `${pendingCount} alteracao(oes) pendente(s) de sincronizacao.`
+              : 'Nenhuma alteracao pendente.'}
+          </span>
+          <span className="muted">Offline: criar musica, criar repertorio, adicionar/remover e reordenar itens, renomear repertorio.</span>
+          {isOnline && pendingCount > 0 ? (
+            <button type="button" className="button-secondary" onClick={flushPendingMutations} disabled={isSyncingPending}>
+              {isSyncingPending ? 'Sincronizando...' : 'Sincronizar agora'}
+            </button>
+          ) : null}
+        </section>
 
         {errorMessage && <p className="error">{errorMessage}</p>}
         {successMessage && <p className="success">{successMessage}</p>}
@@ -752,14 +1155,14 @@ function HomePage() {
             Status: {spotifyStatus.connected ? `Conectado (${spotifyStatus.display_name || spotifyStatus.spotify_user_id})` : 'Nao conectado'}
           </p>
           <div className="row-actions">
-            <button type="button" onClick={handleConnectSpotify} disabled={isSaving}>
+            <button type="button" onClick={handleConnectSpotify} disabled={isSaving || !isOnline}>
               Conectar Spotify
             </button>
             <button
               type="button"
               className="button-secondary"
               onClick={handleRefreshSpotifyPlaylists}
-              disabled={isSaving || !spotifyStatus.connected}
+              disabled={isSaving || !spotifyStatus.connected || !isOnline}
             >
               Atualizar playlists
             </button>
@@ -769,7 +1172,7 @@ function HomePage() {
               value={selectedSpotifyPlaylistId}
               onChange={(event) => setSelectedSpotifyPlaylistId(event.target.value)}
               required
-              disabled={!spotifyStatus.connected}
+              disabled={!spotifyStatus.connected || !isOnline}
             >
               <option value="">Selecione uma playlist</option>
               {spotifyPlaylists.map((playlist) => (
@@ -778,7 +1181,7 @@ function HomePage() {
                 </option>
               ))}
             </select>
-            <button type="submit" disabled={isSaving || !selectedSpotifyPlaylistId}>
+            <button type="submit" disabled={isSaving || !selectedSpotifyPlaylistId || !isOnline}>
               Importar
             </button>
           </form>
@@ -869,7 +1272,7 @@ function HomePage() {
                     type="button"
                     className="button-danger"
                     onClick={handleDeleteSetlist}
-                    disabled={isSaving}
+                    disabled={isSaving || !isOnline}
                   >
                     Excluir
                   </button>
