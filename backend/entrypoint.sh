@@ -31,4 +31,5 @@ PY
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
-exec daphne -b 0.0.0.0 -p 8000 config.asgi:application
+APP_PORT="${PORT:-8000}"
+exec daphne -b 0.0.0.0 -p "$APP_PORT" config.asgi:application
