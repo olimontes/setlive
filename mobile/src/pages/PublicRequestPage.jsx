@@ -71,6 +71,7 @@ function PublicRequestPage() {
     <main className="shell">
       <section className="card">
         <h1>Pedido de musica</h1>
+        <p>Preencha o formulario e envie sua sugestao para o palco.</p>
         {isLoading ? <p>Carregando pagina...</p> : null}
         {errorMessage ? <p className="error">{errorMessage}</p> : null}
         {successMessage ? <p className="success">{successMessage}</p> : null}

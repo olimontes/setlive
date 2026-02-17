@@ -1,4 +1,4 @@
-﻿import { REPERTOIRE_API_BASE_URL } from '../config/api';
+import { REPERTOIRE_API_BASE_URL } from '../config/api';
 import { readTokens } from './tokenStorage';
 
 function authHeaders() {
@@ -53,8 +53,46 @@ async function requestJson(url, options = {}, fallbackError = 'Erro na requisica
   return response.json();
 }
 
-export function listSongs() {
-  return requestJson(`${REPERTOIRE_API_BASE_URL}/songs/`, {}, 'Falha ao listar musicas.');
+async function requestPublicJson(url, options = {}, fallbackError = 'Erro na requisicao publica.') {
+  const response = await fetch(url, options);
+
+  if (!response.ok) {
+    throw new Error(await parseError(response, fallbackError));
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+export async function listSongs({ search = '', page = 1, pageSize = 30 } = {}) {
+  const params = new URLSearchParams();
+  if (search.trim()) {
+    params.set('search', search.trim());
+  }
+  params.set('page', String(page));
+  params.set('page_size', String(pageSize));
+
+  const payload = await requestJson(
+    `${REPERTOIRE_API_BASE_URL}/songs/?${params.toString()}`,
+    {},
+    'Falha ao listar musicas.'
+  );
+
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      page: 1,
+      page_size: payload.length,
+      total: payload.length,
+      has_previous: false,
+      has_next: false,
+    };
+  }
+
+  return payload;
 }
 
 export function createSong({ title, artist }) {
@@ -137,5 +175,43 @@ export function deleteSetlistItem(itemId) {
       method: 'DELETE',
     },
     'Falha ao remover item do repertorio.'
+  );
+}
+
+export function getSetlistAudienceLink(setlistId) {
+  return requestJson(
+    `${REPERTOIRE_API_BASE_URL}/setlists/${setlistId}/audience-link/`,
+    {},
+    'Falha ao gerar link publico.'
+  );
+}
+
+export function listSetlistAudienceRequests(setlistId) {
+  return requestJson(
+    `${REPERTOIRE_API_BASE_URL}/setlists/${setlistId}/requests/`,
+    {},
+    'Falha ao carregar fila de pedidos.'
+  );
+}
+
+export function getPublicSetlist(token) {
+  return requestPublicJson(
+    `${REPERTOIRE_API_BASE_URL}/public/setlists/${token}/`,
+    {},
+    'Falha ao carregar repertorio publico.'
+  );
+}
+
+export function createPublicAudienceRequest(token, payload) {
+  return requestPublicJson(
+    `${REPERTOIRE_API_BASE_URL}/public/setlists/${token}/requests/`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    'Falha ao enviar pedido.'
   );
 }

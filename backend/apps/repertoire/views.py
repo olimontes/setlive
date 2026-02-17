@@ -2,8 +2,10 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.cache import cache
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Max
+from django.db.models import Q
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -53,7 +55,37 @@ class SongListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Song.objects.filter(user=self.request.user).order_by("title", "id")
+        queryset = Song.objects.filter(user=self.request.user)
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(Q(title__icontains=search) | Q(artist__icontains=search))
+        return queryset.order_by("title", "id")
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        try:
+            page = max(int(request.query_params.get("page", 1) or 1), 1)
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size_raw = int(request.query_params.get("page_size", 30) or 30)
+        except (TypeError, ValueError):
+            page_size_raw = 30
+        page_size = min(max(page_size_raw, 1), 100)
+
+        paginator = Paginator(queryset, page_size)
+        page_obj = paginator.get_page(page)
+        items = self.get_serializer(page_obj.object_list, many=True).data
+        return Response(
+            {
+                "items": items,
+                "page": page_obj.number,
+                "page_size": page_size,
+                "total": paginator.count,
+                "has_previous": page_obj.has_previous(),
+                "has_next": page_obj.has_next(),
+            }
+        )
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)

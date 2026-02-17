@@ -37,7 +37,7 @@ function AuthPage() {
     <main className="shell">
       <section className="card">
         <h1>SetLive</h1>
-        <p>{isRegisterMode ? 'Crie sua conta' : 'Entre na sua conta'}</p>
+        <p>{isRegisterMode ? 'Crie sua conta para organizar seus shows.' : 'Entre na sua conta para abrir seu painel.'}</p>
 
         <form onSubmit={handleSubmit} className="form">
           {isRegisterMode && (
@@ -55,23 +55,12 @@ function AuthPage() {
 
           <label>
             E-mail
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </label>
 
           <label>
             Senha
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
-              required
-            />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
           </label>
 
           <button type="submit" disabled={auth.isLoading}>
@@ -79,13 +68,8 @@ function AuthPage() {
           </button>
         </form>
 
-        <button
-          type="button"
-          className="link"
-          disabled={auth.isLoading}
-          onClick={() => setIsRegisterMode((prev) => !prev)}
-        >
-          {isRegisterMode ? 'Ja tem conta? Entrar' : 'Não tem conta? Cadastrar'}
+        <button type="button" className="link" disabled={auth.isLoading} onClick={() => setIsRegisterMode((prev) => !prev)}>
+          {isRegisterMode ? 'Ja tem conta? Entrar' : 'Nao tem conta? Cadastrar'}
         </button>
 
         {auth.errorMessage && <p className="error">{auth.errorMessage}</p>}

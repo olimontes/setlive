@@ -57,7 +57,14 @@ function HomePage() {
   const [newSongArtist, setNewSongArtist] = useState('');
   const [newSetlistName, setNewSetlistName] = useState('');
   const [editSetlistName, setEditSetlistName] = useState('');
-  const [selectedSongId, setSelectedSongId] = useState('');
+  const [songSearchTerm, setSongSearchTerm] = useState('');
+  const [songSearchQuery, setSongSearchQuery] = useState('');
+  const [songsPage, setSongsPage] = useState(1);
+  const [songsPageSize] = useState(30);
+  const [songsTotal, setSongsTotal] = useState(0);
+  const [songsHasNext, setSongsHasNext] = useState(false);
+  const [songsHasPrevious, setSongsHasPrevious] = useState(false);
+  const [selectedLibrarySongIds, setSelectedLibrarySongIds] = useState([]);
 
   const [spotifyStatus, setSpotifyStatus] = useState({ connected: false });
   const [spotifyPlaylists, setSpotifyPlaylists] = useState([]);
@@ -85,6 +92,13 @@ function HomePage() {
   const currentStageItem = stageItems[stageItemIndex] ?? null;
   const spotifyRedirectUri = SPOTIFY_REDIRECT_URI || `${window.location.origin}/callback`;
   const pendingCount = pendingMutations.length;
+  const audienceQrCodeUrl = useMemo(() => {
+    if (!audienceLink?.public_url) {
+      return '';
+    }
+    const encoded = encodeURIComponent(audienceLink.public_url);
+    return `https://quickchart.io/qr?text=${encoded}&size=260&margin=1`;
+  }, [audienceLink?.public_url]);
 
   function persistPendingMutations(nextPending) {
     setPendingMutations(nextPending);
@@ -128,9 +142,17 @@ function HomePage() {
 
         await handleSpotifyCallback();
 
-        const [loadedSongs, loadedSetlists, status] = await Promise.all([listSongs(), listSetlists(), getSpotifyStatus()]);
+        const [songsPayload, loadedSetlists, status] = await Promise.all([
+          listSongs({ search: '', page: 1, pageSize: songsPageSize }),
+          listSetlists(),
+          getSpotifyStatus(),
+        ]);
 
-        setSongs(loadedSongs);
+        setSongs(songsPayload.items ?? []);
+        setSongsTotal(songsPayload.total ?? (songsPayload.items ?? []).length);
+        setSongsHasPrevious(Boolean(songsPayload.has_previous));
+        setSongsHasNext(Boolean(songsPayload.has_next));
+        setSongsPage(songsPayload.page ?? 1);
         setSetlists(loadedSetlists);
         setSpotifyStatus(status);
 
@@ -143,7 +165,7 @@ function HomePage() {
           setActiveSetlist(firstDetail);
           setEditSetlistName(firstDetail.name);
           saveOfflineSnapshot({
-            songs: loadedSongs,
+            songs: songsPayload.items ?? [],
             setlists: loadedSetlists,
             activeSetlistId: firstDetail.id,
             setlistDetailsById: detailById,
@@ -164,6 +186,10 @@ function HomePage() {
         const snapshot = loadOfflineSnapshot();
         if (snapshot) {
           setSongs(snapshot.songs ?? []);
+          setSongsTotal((snapshot.songs ?? []).length);
+          setSongsHasPrevious(false);
+          setSongsHasNext(false);
+          setSongsPage(1);
           setSetlists(snapshot.setlists ?? []);
           const cachedActiveId = snapshot.activeSetlistId ?? null;
           const cachedActive = (snapshot.setlistDetailsById ?? {})[cachedActiveId] ?? null;
@@ -201,6 +227,14 @@ function HomePage() {
   }, []);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setSongSearchQuery(songSearchTerm.trim());
+      setSongsPage(1);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [songSearchTerm]);
+
+  useEffect(() => {
     const currentSnapshot = loadOfflineSnapshot() ?? { setlistDetailsById: {} };
     const nextSetlistDetails = { ...(currentSnapshot.setlistDetailsById ?? {}) };
     if (activeSetlist?.id) {
@@ -214,6 +248,61 @@ function HomePage() {
       updatedAt: new Date().toISOString(),
     });
   }, [songs, setlists, activeSetlist]);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadSongsPage() {
+      if (!isOnline) {
+        const snapshot = loadOfflineSnapshot();
+        const cachedSongs = snapshot?.songs ?? [];
+        const term = songSearchQuery.toLowerCase();
+        const filtered = term
+          ? cachedSongs.filter((song) => {
+              const title = String(song.title ?? '').toLowerCase();
+              const artist = String(song.artist ?? '').toLowerCase();
+              return title.includes(term) || artist.includes(term);
+            })
+          : cachedSongs;
+        const start = (songsPage - 1) * songsPageSize;
+        const items = filtered.slice(start, start + songsPageSize);
+        if (cancelled) {
+          return;
+        }
+        setSongs(items);
+        setSongsTotal(filtered.length);
+        setSongsHasPrevious(songsPage > 1);
+        setSongsHasNext(start + songsPageSize < filtered.length);
+        return;
+      }
+
+      try {
+        const payload = await listSongs({ search: songSearchQuery, page: songsPage, pageSize: songsPageSize });
+        if (cancelled) {
+          return;
+        }
+        setSongs(payload.items ?? []);
+        setSongsTotal(payload.total ?? (payload.items ?? []).length);
+        setSongsHasPrevious(Boolean(payload.has_previous));
+        setSongsHasNext(Boolean(payload.has_next));
+        setSongsPage(payload.page ?? songsPage);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(error.message || 'Falha ao listar musicas.');
+        }
+      }
+    }
+
+    loadSongsPage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoading, isOnline, songSearchQuery, songsPage, songsPageSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -394,6 +483,13 @@ function HomePage() {
     const inSet = new Set(activeSetlist.items.map((item) => item.song.id));
     return songs.filter((song) => !inSet.has(song.id));
   }, [songs, activeSetlist]);
+
+  const filteredSongsNotInSetlist = songsNotInSetlist;
+
+  useEffect(() => {
+    const availableIds = new Set(songsNotInSetlist.map((song) => song.id));
+    setSelectedLibrarySongIds((current) => current.filter((songId) => availableIds.has(songId)));
+  }, [songsNotInSetlist]);
 
   function buildChordSearchUrl(song) {
     if (!song) {
@@ -607,14 +703,37 @@ function HomePage() {
     setEditSetlistName(detail.name);
   }
 
-  async function refreshSongs() {
+  async function refreshSongs(next = {}) {
+    const targetSearch = next.search ?? songSearchQuery;
+    const targetPage = next.page ?? songsPage;
+
     if (!isOnline) {
       const snapshot = loadOfflineSnapshot();
-      setSongs(snapshot?.songs ?? []);
+      const cachedSongs = snapshot?.songs ?? [];
+      const term = String(targetSearch).toLowerCase();
+      const filtered = term
+        ? cachedSongs.filter((song) => {
+            const title = String(song.title ?? '').toLowerCase();
+            const artist = String(song.artist ?? '').toLowerCase();
+            return title.includes(term) || artist.includes(term);
+          })
+        : cachedSongs;
+      const start = (targetPage - 1) * songsPageSize;
+      const items = filtered.slice(start, start + songsPageSize);
+      setSongs(items);
+      setSongsTotal(filtered.length);
+      setSongsHasPrevious(targetPage > 1);
+      setSongsHasNext(start + songsPageSize < filtered.length);
+      setSongsPage(targetPage);
       return;
     }
-    const loadedSongs = await listSongs();
-    setSongs(loadedSongs);
+
+    const payload = await listSongs({ search: targetSearch, page: targetPage, pageSize: songsPageSize });
+    setSongs(payload.items ?? []);
+    setSongsTotal(payload.total ?? (payload.items ?? []).length);
+    setSongsHasPrevious(Boolean(payload.has_previous));
+    setSongsHasNext(Boolean(payload.has_next));
+    setSongsPage(payload.page ?? targetPage);
   }
 
   async function handleConnectSpotify() {
@@ -714,12 +833,12 @@ function HomePage() {
     setIsSaving(true);
     setErrorMessage('');
     try {
-      const created = await createSong({
+      await createSong({
         title,
         artist,
       });
-      const nextSongs = [...songs, created].sort((a, b) => a.title.localeCompare(b.title));
-      setSongs(nextSongs);
+      setSongsPage(1);
+      await refreshSongs({ page: 1 });
       setNewSongTitle('');
       setNewSongArtist('');
     } catch (error) {
@@ -844,57 +963,107 @@ function HomePage() {
     }
   }
 
-  async function handleAddSongToSetlist(event) {
-    event.preventDefault();
+  function toggleLibrarySongSelection(songId) {
+    setSelectedLibrarySongIds((current) => {
+      if (current.includes(songId)) {
+        return current.filter((id) => id !== songId);
+      }
+      return [...current, songId];
+    });
+  }
 
-    if (!activeSetlistId || !selectedSongId) {
+  function selectAllFilteredSongs() {
+    setSelectedLibrarySongIds((current) => {
+      const merged = new Set([...current, ...filteredSongsNotInSetlist.map((song) => song.id)]);
+      return Array.from(merged);
+    });
+  }
+
+  function clearLibrarySelection() {
+    setSelectedLibrarySongIds([]);
+  }
+
+  function goToPreviousSongsPage() {
+    setSongsPage((current) => Math.max(current - 1, 1));
+  }
+
+  function goToNextSongsPage() {
+    if (!songsHasNext) {
       return;
     }
-    const songId = Number(selectedSongId);
-    if (!Number.isFinite(songId)) {
-      return;
-    }
+    setSongsPage((current) => current + 1);
+  }
+
+  function addSongToSetOffline(songId) {
     const selectedSong = songs.find((song) => song.id === songId);
     if (!selectedSong) {
-      setErrorMessage('Musica selecionada nao encontrada.');
-      return;
+      return false;
     }
     if (activeSetlist?.items.some((item) => item.song.id === songId)) {
-      setErrorMessage('Musica ja adicionada no repertorio.');
+      return false;
+    }
+
+    const tempItemId = createTempId();
+    const currentItems = activeSetlist?.items ?? [];
+    const tempItem = {
+      id: tempItemId,
+      position: currentItems.length + 1,
+      song: selectedSong,
+    };
+    setActiveSetlist((current) => {
+      if (!current || current.id !== activeSetlistId) {
+        return current;
+      }
+      return {
+        ...current,
+        items: [...current.items, tempItem],
+      };
+    });
+    queueMutation('add_setlist_item', { setlistId: activeSetlistId, songId, tempItemId });
+    return true;
+  }
+
+  async function addSongToSetOnline(songId) {
+    await addSetlistItem(activeSetlistId, songId);
+  }
+
+  async function handleAddSelectedSongsToSet() {
+    if (!activeSetlistId || selectedLibrarySongIds.length === 0) {
+      return;
+    }
+
+    const idsToAdd = selectedLibrarySongIds.filter((songId) => songsNotInSetlist.some((song) => song.id === songId));
+    if (idsToAdd.length === 0) {
+      setSelectedLibrarySongIds([]);
       return;
     }
 
     if (!isOnline) {
-      const tempItemId = createTempId();
-      const currentItems = activeSetlist?.items ?? [];
-      const tempItem = {
-        id: tempItemId,
-        position: currentItems.length + 1,
-        song: selectedSong,
-      };
-      setActiveSetlist((current) => {
-        if (!current || current.id !== activeSetlistId) {
-          return current;
+      let addedCount = 0;
+      idsToAdd.forEach((songId) => {
+        if (addSongToSetOffline(songId)) {
+          addedCount += 1;
         }
-        return {
-          ...current,
-          items: [...current.items, tempItem],
-        };
       });
-      setSelectedSongId('');
-      queueMutation('add_setlist_item', { setlistId: activeSetlistId, songId, tempItemId });
-      setSuccessMessage('Musica adicionada offline. Sera sincronizada ao reconectar.');
+      setSelectedLibrarySongIds([]);
+      if (addedCount > 0) {
+        setSuccessMessage(`${addedCount} musica(s) adicionada(s) offline. Serao sincronizadas ao reconectar.`);
+      }
       return;
     }
 
     setIsSaving(true);
     setErrorMessage('');
     try {
-      await addSetlistItem(activeSetlistId, songId);
-      setSelectedSongId('');
+      for (const songId of idsToAdd) {
+        // sequential insert keeps deterministic order in the set
+        await addSongToSetOnline(songId);
+      }
+      setSelectedLibrarySongIds([]);
       await refreshSetlists(activeSetlistId);
+      setSuccessMessage(`${idsToAdd.length} musica(s) adicionada(s) ao set atual.`);
     } catch (error) {
-      setErrorMessage(error.message || 'Falha ao adicionar musica ao repertorio.');
+      setErrorMessage(error.message || 'Falha ao adicionar musicas ao repertorio.');
     } finally {
       setIsSaving(false);
     }
@@ -1124,27 +1293,11 @@ function HomePage() {
         <header className="board-header">
           <div>
             <h1>SetLive</h1>
-            <p>Semana 6: offline e sincronizacao ao reconectar.</p>
           </div>
           <button className="button-secondary" onClick={logout}>
             Sair
           </button>
         </header>
-
-        <section className={`status-banner ${isOnline ? 'online' : 'offline'}`}>
-          <strong>{isOnline ? 'Online' : 'Offline'}</strong>
-          <span>
-            {pendingCount > 0
-              ? `${pendingCount} alteracao(oes) pendente(s) de sincronizacao.`
-              : 'Nenhuma alteracao pendente.'}
-          </span>
-          <span className="muted">Offline: criar musica, criar repertorio, adicionar/remover e reordenar itens, renomear repertorio.</span>
-          {isOnline && pendingCount > 0 ? (
-            <button type="button" className="button-secondary" onClick={flushPendingMutations} disabled={isSyncingPending}>
-              {isSyncingPending ? 'Sincronizando...' : 'Sincronizar agora'}
-            </button>
-          ) : null}
-        </section>
 
         {errorMessage && <p className="error">{errorMessage}</p>}
         {successMessage && <p className="success">{successMessage}</p>}
@@ -1232,13 +1385,50 @@ function HomePage() {
               <button disabled={isSaving}>Adicionar musica</button>
             </form>
 
+            <div className="form-stack">
+              <input
+                value={songSearchTerm}
+                onChange={(event) => setSongSearchTerm(event.target.value)}
+                placeholder="Buscar musica para o set atual"
+              />
+              <p className="muted">
+                Biblioteca: {songsTotal} musica(s) | Pagina {songsPage}
+              </p>
+              <div className="row-actions">
+                <button type="button" className="button-secondary button-sm" onClick={goToPreviousSongsPage} disabled={!songsHasPrevious || isSaving}>
+                  Pagina anterior
+                </button>
+                <button type="button" className="button-secondary button-sm" onClick={goToNextSongsPage} disabled={!songsHasNext || isSaving}>
+                  Proxima pagina
+                </button>
+              </div>
+              <div className="row-actions actions-grid-two">
+                <button type="button" className="button-secondary" onClick={selectAllFilteredSongs} disabled={filteredSongsNotInSetlist.length === 0}>
+                  Selecionar filtradas
+                </button>
+                <button type="button" className="button-secondary" onClick={clearLibrarySelection} disabled={selectedLibrarySongIds.length === 0}>
+                  Limpar selecao
+                </button>
+              </div>
+              <button type="button" className="button-sm" onClick={handleAddSelectedSongsToSet} disabled={!activeSetlistId || selectedLibrarySongIds.length === 0 || isSaving}>
+                Adicionar selecionadas ao set atual ({selectedLibrarySongIds.length})
+              </button>
+            </div>
+
             <ul className="list compact">
-              {songs.map((song) => (
+              {filteredSongsNotInSetlist.map((song) => (
                 <li key={song.id}>
-                  <span>
-                    {song.title}
-                    {song.artist ? ` - ${song.artist}` : ''}
-                  </span>
+                  <label className="row-actions">
+                    <input
+                      type="checkbox"
+                      checked={selectedLibrarySongIds.includes(song.id)}
+                      onChange={() => toggleLibrarySongSelection(song.id)}
+                    />
+                    <span>
+                      {song.title}
+                      {song.artist ? ` - ${song.artist}` : ''}
+                    </span>
+                  </label>
                 </li>
               ))}
             </ul>
@@ -1278,22 +1468,7 @@ function HomePage() {
                   </button>
                 </form>
 
-                <form className="form-inline" onSubmit={handleAddSongToSetlist}>
-                  <select
-                    value={selectedSongId}
-                    onChange={(event) => setSelectedSongId(event.target.value)}
-                    required
-                  >
-                    <option value="">Selecione uma musica</option>
-                    {songsNotInSetlist.map((song) => (
-                      <option key={song.id} value={song.id}>
-                        {song.title}
-                        {song.artist ? ` - ${song.artist}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <button disabled={isSaving || songsNotInSetlist.length === 0}>Adicionar ao set</button>
-                </form>
+                <p className="muted">Selecione as musicas no painel "Musicas" e use "Adicionar selecionadas ao set atual".</p>
 
                 <ol className="ordered-list">
                   {activeSetlist.items.map((item, index) => (
@@ -1350,6 +1525,14 @@ function HomePage() {
                         Copiar
                       </button>
                     </div>
+                    {audienceQrCodeUrl ? (
+                      <div className="qr-block">
+                        <img className="qr-image" src={audienceQrCodeUrl} alt="QR Code para pedidos do publico" />
+                        <a className="stage-link-button" href={audienceQrCodeUrl} target="_blank" rel="noreferrer">
+                          Abrir QR em tela cheia
+                        </a>
+                      </div>
+                    ) : null}
                     <p>
                       Conexao em tempo real:{' '}
                       {queueConnectionStatus === 'connected'
