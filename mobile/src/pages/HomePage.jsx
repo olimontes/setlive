@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { SPOTIFY_REDIRECT_URI } from '../config/api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { API_ROOT, SPOTIFY_REDIRECT_URI } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import {
   addSetlistItem,
@@ -8,6 +8,8 @@ import {
   deleteSetlist,
   deleteSetlistItem,
   getSetlist,
+  getSetlistAudienceLink,
+  listSetlistAudienceRequests,
   listSetlists,
   listSongs,
   reorderSetlist,
@@ -20,6 +22,14 @@ import {
   importSpotifyPlaylist,
   listSpotifyPlaylists,
 } from '../services/spotifyApi';
+import { readTokens } from '../services/tokenStorage';
+
+function toWebSocketBaseUrl() {
+  if (API_ROOT.startsWith('https://')) {
+    return API_ROOT.replace('https://', 'wss://').replace(/\/api$/, '');
+  }
+  return API_ROOT.replace('http://', 'ws://').replace(/\/api$/, '');
+}
 
 function HomePage() {
   const { logout } = useAuth();
@@ -38,10 +48,17 @@ function HomePage() {
   const [spotifyPlaylists, setSpotifyPlaylists] = useState([]);
   const [selectedSpotifyPlaylistId, setSelectedSpotifyPlaylistId] = useState('');
 
+  const [audienceLink, setAudienceLink] = useState(null);
+  const [requestQueue, setRequestQueue] = useState([]);
+  const [queueConnectionStatus, setQueueConnectionStatus] = useState('disconnected');
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  const queueSocketRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
 
   const activeSetlistId = activeSetlist?.id ?? null;
   const spotifyRedirectUri = SPOTIFY_REDIRECT_URI || `${window.location.origin}/callback`;
@@ -83,6 +100,130 @@ function HomePage() {
 
     bootstrap();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAudienceData(setlistId) {
+      if (!setlistId) {
+        setAudienceLink(null);
+        setRequestQueue([]);
+        setQueueConnectionStatus('disconnected');
+        return;
+      }
+
+      try {
+        const [link, queuePayload] = await Promise.all([
+          getSetlistAudienceLink(setlistId),
+          listSetlistAudienceRequests(setlistId),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setAudienceLink(link);
+        setRequestQueue(queuePayload.items ?? []);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(error.message || 'Falha ao carregar dados de pedidos.');
+        }
+      }
+    }
+
+    loadAudienceData(activeSetlistId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSetlistId]);
+
+  useEffect(() => {
+    if (!activeSetlistId || !audienceLink?.token) {
+      if (queueSocketRef.current) {
+        queueSocketRef.current.close();
+      }
+      queueSocketRef.current = null;
+      setQueueConnectionStatus('disconnected');
+      return;
+    }
+
+    let closedByApp = false;
+    const wsBase = toWebSocketBaseUrl();
+    const accessToken = readTokens()?.access ?? '';
+    const wsUrl = `${wsBase}/ws/repertoire/setlists/${activeSetlistId}/requests/?token=${encodeURIComponent(accessToken)}`;
+
+    async function refreshQueueSilently() {
+      try {
+        const queuePayload = await listSetlistAudienceRequests(activeSetlistId);
+        setRequestQueue(queuePayload.items ?? []);
+      } catch {
+        // no-op
+      }
+    }
+
+    function connect() {
+      setQueueConnectionStatus('connecting');
+      const socket = new WebSocket(wsUrl);
+      queueSocketRef.current = socket;
+
+      socket.onopen = () => {
+        setQueueConnectionStatus('connected');
+        refreshQueueSilently();
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'queue.request.created' || payload.type === 'connection.ready') {
+            refreshQueueSilently();
+          }
+        } catch {
+          // no-op
+        }
+      };
+
+      socket.onclose = () => {
+        if (closedByApp) {
+          return;
+        }
+        setQueueConnectionStatus('reconnecting');
+        reconnectTimerRef.current = setTimeout(connect, 2000);
+      };
+
+      socket.onerror = () => {
+        socket.close();
+      };
+    }
+
+    connect();
+
+    return () => {
+      closedByApp = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+      if (queueSocketRef.current) {
+        queueSocketRef.current.close();
+      }
+      queueSocketRef.current = null;
+    };
+  }, [activeSetlistId, audienceLink?.token]);
+
+  useEffect(() => {
+    if (!activeSetlistId) {
+      return;
+    }
+
+    const intervalId = setInterval(async () => {
+      try {
+        const queuePayload = await listSetlistAudienceRequests(activeSetlistId);
+        setRequestQueue(queuePayload.items ?? []);
+      } catch {
+        // no-op
+      }
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [activeSetlistId]);
 
   const songsNotInSetlist = useMemo(() => {
     if (!activeSetlist) {
@@ -377,6 +518,18 @@ function HomePage() {
     }
   }
 
+  async function handleCopyPublicLink() {
+    if (!audienceLink?.public_url) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(audienceLink.public_url);
+      setSuccessMessage('Link publico copiado.');
+    } catch {
+      setErrorMessage('Nao foi possivel copiar o link.');
+    }
+  }
+
   if (isLoading) {
     return (
       <main className="shell">
@@ -393,7 +546,7 @@ function HomePage() {
         <header className="board-header">
           <div>
             <h1>SetLive</h1>
-            <p>Semana 3: OAuth Spotify e importacao de playlists.</p>
+            <p>Semana 4: pedidos do publico em tempo real.</p>
           </div>
           <button className="button-secondary" onClick={logout}>
             Sair
@@ -574,6 +727,39 @@ function HomePage() {
                     </li>
                   ))}
                 </ol>
+
+                <hr />
+                <h2>Pedidos do publico</h2>
+                {audienceLink ? (
+                  <>
+                    <p>Compartilhe este link/QR com o publico:</p>
+                    <div className="form-inline">
+                      <input value={audienceLink.public_url} readOnly />
+                      <button type="button" className="button-secondary" onClick={handleCopyPublicLink}>
+                        Copiar
+                      </button>
+                    </div>
+                    <p>
+                      Conexao em tempo real:{' '}
+                      {queueConnectionStatus === 'connected'
+                        ? 'conectada'
+                        : queueConnectionStatus === 'reconnecting'
+                          ? 'reconectando'
+                          : queueConnectionStatus}
+                    </p>
+                  </>
+                ) : null}
+
+                <p>Fila atual: {requestQueue.length} pedido(s).</p>
+                <ul className="list compact">
+                  {requestQueue.map((request) => (
+                    <li key={request.id}>
+                      <strong>{request.requested_song_name || request.song?.title || 'Musica nao informada'}</strong>
+                      {request.song?.artist ? ` - ${request.song.artist}` : ''}
+                      {request.requester_name ? ` (por ${request.requester_name})` : ''}
+                    </li>
+                  ))}
+                </ul>
               </>
             )}
           </section>

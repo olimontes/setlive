@@ -1,17 +1,51 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Max
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Setlist, SetlistItem, Song
+from .models import AudienceRequest, Setlist, SetlistItem, SetlistPublicLink, Song
 from .serializers import (
     AddSetlistItemSerializer,
+    AudienceRequestSerializer,
+    PublicAudienceRequestCreateSerializer,
+    PublicSetlistSerializer,
     ReorderSetlistSerializer,
     SetlistDetailSerializer,
     SetlistSerializer,
     SongSerializer,
 )
+
+SHORT_RATE_WINDOW_SECONDS = 15
+LONG_RATE_WINDOW_SECONDS = 10 * 60
+LONG_RATE_MAX_REQUESTS = 20
+
+
+def _client_ip(request):
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def _ensure_session_key(request):
+    if not request.session.session_key:
+        request.session.save()
+    return request.session.session_key or ""
+
+
+def _channel_group_for_setlist(setlist_id):
+    return f"setlist_requests_{setlist_id}"
+
+
+def _public_url_for_token(request, token):
+    if settings.FRONTEND_PUBLIC_URL:
+        return f"{settings.FRONTEND_PUBLIC_URL}/public/{token}"
+    return request.build_absolute_uri(f"/public/{token}")
 
 
 class SongListCreateView(generics.ListCreateAPIView):
@@ -150,3 +184,130 @@ class SetlistItemDeleteView(APIView):
             setlist.save(update_fields=["updated_at"])
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SetlistPublicLinkView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, setlist_id):
+        setlist = Setlist.objects.filter(user=request.user, id=setlist_id).first()
+        if not setlist:
+            return Response({"detail": "Repertorio nao encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        public_link, _ = SetlistPublicLink.objects.get_or_create(setlist=setlist)
+        return Response(
+            {
+                "setlist_id": setlist.id,
+                "token": public_link.token,
+                "public_url": _public_url_for_token(request, public_link.token),
+                "is_active": public_link.is_active,
+            }
+        )
+
+
+class SetlistAudienceRequestsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, setlist_id):
+        setlist = Setlist.objects.filter(user=request.user, id=setlist_id).first()
+        if not setlist:
+            return Response({"detail": "Repertorio nao encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        queue = AudienceRequest.objects.filter(setlist=setlist).select_related("song")
+        return Response(
+            {
+                "setlist_id": setlist.id,
+                "count": queue.count(),
+                "items": AudienceRequestSerializer(queue, many=True).data,
+            }
+        )
+
+
+class PublicSetlistView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, token):
+        public_link = (
+            SetlistPublicLink.objects.filter(token=token, is_active=True)
+            .select_related("setlist")
+            .first()
+        )
+        if not public_link:
+            return Response({"detail": "Link publico invalido."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(PublicSetlistSerializer(public_link.setlist).data)
+
+
+class PublicAudienceRequestCreateView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, token):
+        public_link = SetlistPublicLink.objects.filter(token=token, is_active=True).select_related("setlist").first()
+        if not public_link:
+            return Response({"detail": "Link publico invalido."}, status=status.HTTP_404_NOT_FOUND)
+
+        setlist = public_link.setlist
+        serializer = PublicAudienceRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        requested_song_name = serializer.validated_data["song_name"].strip()
+        requester_name = serializer.validated_data.get("requester_name", "").strip()
+        if not requested_song_name:
+            return Response({"detail": "Nome da musica e obrigatorio."}, status=status.HTTP_400_BAD_REQUEST)
+
+        matched_song = (
+            Song.objects.filter(setlist_items__setlist=setlist, title__iexact=requested_song_name)
+            .order_by("id")
+            .first()
+        )
+
+        client_ip = _client_ip(request)
+        session_key = _ensure_session_key(request)
+        short_key = f"audience:short:{setlist.id}:{client_ip}:{session_key}"
+        long_key = f"audience:long:{setlist.id}:{client_ip}:{session_key}"
+
+        if cache.get(short_key):
+            return Response(
+                {"detail": f"Espere {SHORT_RATE_WINDOW_SECONDS}s antes de enviar novo pedido."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        if cache.add(long_key, 1, timeout=LONG_RATE_WINDOW_SECONDS):
+            request_count = 1
+        else:
+            try:
+                request_count = cache.incr(long_key)
+            except ValueError:
+                cache.set(long_key, 1, timeout=LONG_RATE_WINDOW_SECONDS)
+                request_count = 1
+
+        if request_count > LONG_RATE_MAX_REQUESTS:
+            return Response(
+                {"detail": "Limite de pedidos excedido. Tente novamente mais tarde."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        cache.set(short_key, 1, timeout=SHORT_RATE_WINDOW_SECONDS)
+
+        audience_request = AudienceRequest.objects.create(
+            setlist=setlist,
+            song=matched_song,
+            requested_song_name=requested_song_name,
+            requester_name=requester_name,
+            ip_address=client_ip or None,
+            session_key=session_key,
+        )
+
+        channel_layer = get_channel_layer()
+        if channel_layer is not None:
+            async_to_sync(channel_layer.group_send)(
+                _channel_group_for_setlist(setlist.id),
+                {
+                    "type": "queue.request.created",
+                    "setlist_id": setlist.id,
+                    "request_id": audience_request.id,
+                    "created_at": audience_request.created_at.isoformat(),
+                },
+            )
+
+        return Response(AudienceRequestSerializer(audience_request).data, status=status.HTTP_201_CREATED)
