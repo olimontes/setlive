@@ -1230,6 +1230,23 @@ function HomePage() {
     }
   }
 
+  async function handleRefreshRequestQueue() {
+    if (!activeSetlistId || !isOnline) {
+      return;
+    }
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const queuePayload = await listSetlistAudienceRequests(activeSetlistId);
+      setRequestQueue(queuePayload.items ?? []);
+      setSuccessMessage('Fila de pedidos atualizada.');
+    } catch (error) {
+      setErrorMessage(error.message || 'Falha ao atualizar fila de pedidos.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   function openStageMode(startIndex = 0) {
     if (!activeSetlist || stageItems.length === 0) {
       return;
@@ -1643,6 +1660,14 @@ function HomePage() {
                           ? 'reconectando'
                           : queueConnectionStatus}
                     </p>
+                    <button
+                      type="button"
+                      className="button-secondary button-sm"
+                      onClick={handleRefreshRequestQueue}
+                      disabled={isSaving || !isOnline}
+                    >
+                      Atualizar fila
+                    </button>
                   </>
                 ) : null}
 
