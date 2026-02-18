@@ -116,11 +116,6 @@ function HomePage() {
   const audiencePublicUrl = useMemo(() => {
     const token = String(audienceLink?.token ?? '').trim();
     const publicUrl = String(audienceLink?.public_url ?? '').trim();
-    const hasTokenInUrl = token && publicUrl.includes(`/public/${token}`);
-
-    if (hasTokenInUrl) {
-      return publicUrl;
-    }
     if (token) {
       return `${window.location.origin}/public/${token}`;
     }
