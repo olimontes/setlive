@@ -521,13 +521,9 @@ function HomePage() {
     if (song.chord_url) {
       return song.chord_url;
     }
+    const artistSlug = toCifraSlug(song.artist || 'desconhecido');
     const titleSlug = toCifraSlug(song.title);
-    const artistSlug = toCifraSlug(song.artist);
-    if (titleSlug && artistSlug) {
-      return `https://www.cifraclub.com.br/${artistSlug}/${titleSlug}/imprimir.html`;
-    }
-    const query = encodeURIComponent(`${song.title} ${song.artist ?? ''} cifra site:cifraclub.com.br`.trim());
-    return `https://www.google.com/search?q=${query}`;
+    return `https://www.cifraclub.com.br/${artistSlug}/${titleSlug}/imprimir.html`;
   }
 
   function buildLyricsSearchUrl(song) {
