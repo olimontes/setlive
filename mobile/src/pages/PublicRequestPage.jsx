@@ -3,14 +3,21 @@ import { createPublicAudienceRequest, getPublicSetlist } from '../services/setli
 
 function extractPublicToken(pathname) {
   const chunks = pathname.split('/').filter(Boolean);
-  if (chunks.length !== 2 || chunks[0] !== 'public') {
+  if (chunks.length < 2 || chunks[0] !== 'public') {
     return '';
   }
   return chunks[1];
 }
 
 function PublicRequestPage() {
-  const token = useMemo(() => extractPublicToken(window.location.pathname), []);
+  const token = useMemo(() => {
+    const pathToken = extractPublicToken(window.location.pathname);
+    if (pathToken) {
+      return pathToken;
+    }
+    const search = new URLSearchParams(window.location.search);
+    return String(search.get('public_token') || search.get('token') || '').trim();
+  }, []);
   const [isValidLink, setIsValidLink] = useState(false);
   const [songName, setSongName] = useState('');
   const [requesterName, setRequesterName] = useState('');

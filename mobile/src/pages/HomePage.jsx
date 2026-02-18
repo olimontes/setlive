@@ -117,7 +117,7 @@ function HomePage() {
     const token = String(audienceLink?.token ?? '').trim();
     const publicUrl = String(audienceLink?.public_url ?? '').trim();
     if (token) {
-      return `${window.location.origin}/public/${token}`;
+      return `${window.location.origin}/?public_token=${encodeURIComponent(token)}`;
     }
     return publicUrl;
   }, [audienceLink?.public_url, audienceLink?.token]);
