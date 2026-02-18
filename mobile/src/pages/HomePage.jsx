@@ -110,13 +110,29 @@ function HomePage() {
   const currentStageItem = stageItems[stageItemIndex] ?? null;
   const spotifyRedirectUri = SPOTIFY_REDIRECT_URI || `${window.location.origin}/callback`;
   const pendingCount = pendingMutations.length;
+  const [setVisibleCount, setSetVisibleCount] = useState(12);
+  const visibleSetItems = activeSetlist?.items?.slice(0, setVisibleCount) ?? [];
+  const hasMoreSetItems = (activeSetlist?.items?.length ?? 0) > setVisibleCount;
+  const audiencePublicUrl = useMemo(() => {
+    const token = String(audienceLink?.token ?? '').trim();
+    const publicUrl = String(audienceLink?.public_url ?? '').trim();
+    const hasTokenInUrl = token && publicUrl.includes(`/public/${token}`);
+
+    if (hasTokenInUrl) {
+      return publicUrl;
+    }
+    if (token) {
+      return `${window.location.origin}/public/${token}`;
+    }
+    return publicUrl;
+  }, [audienceLink?.public_url, audienceLink?.token]);
   const audienceQrCodeUrl = useMemo(() => {
-    if (!audienceLink?.public_url) {
+    if (!audiencePublicUrl) {
       return '';
     }
-    const encoded = encodeURIComponent(audienceLink.public_url);
+    const encoded = encodeURIComponent(audiencePublicUrl);
     return `https://quickchart.io/qr?text=${encoded}&size=260&margin=1`;
-  }, [audienceLink?.public_url]);
+  }, [audiencePublicUrl]);
 
   function persistPendingMutations(nextPending) {
     setPendingMutations(nextPending);
@@ -1208,11 +1224,11 @@ function HomePage() {
   }
 
   async function handleCopyPublicLink() {
-    if (!audienceLink?.public_url) {
+    if (!audiencePublicUrl) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(audienceLink.public_url);
+      await navigator.clipboard.writeText(audiencePublicUrl);
       setSuccessMessage('Link publico copiado.');
     } catch {
       setErrorMessage('Nao foi possivel copiar o link.');
@@ -1239,6 +1255,14 @@ function HomePage() {
   function goToNextStageSong() {
     setStageItemIndex((current) => Math.min(current + 1, Math.max(stageItems.length - 1, 0)));
   }
+
+  function handleShowMoreSetItems() {
+    setSetVisibleCount((current) => current + 12);
+  }
+
+  useEffect(() => {
+    setSetVisibleCount(12);
+  }, [activeSetlistId]);
 
   if (isLoading) {
     return (
@@ -1409,8 +1433,8 @@ function HomePage() {
           </form>
         </section>
 
-        <div className="columns">
-          <section className="panel">
+        <div className="columns workspace-grid">
+          <section className="panel panel-setlists">
             <h2>Repertorios</h2>
             <form className="form-inline" onSubmit={handleCreateSetlist}>
               <input
@@ -1422,7 +1446,7 @@ function HomePage() {
               <button disabled={isSaving}>Criar</button>
             </form>
 
-            <ul className="list">
+            <ul className="list compact">
               {setlists.map((setlist) => (
                 <li key={setlist.id}>
                   <button
@@ -1437,7 +1461,7 @@ function HomePage() {
             </ul>
           </section>
 
-          <section className="panel">
+          <section className="panel panel-library">
             <h2>Musicas</h2>
             <form className="form-stack" onSubmit={handleCreateSong}>
               <input
@@ -1503,7 +1527,7 @@ function HomePage() {
             </ul>
           </section>
 
-          <section className="panel">
+          <section className="panel panel-set">
             <h2>Set atual</h2>
             {!activeSetlist ? (
               <p>Crie ou selecione um repertorio.</p>
@@ -1539,17 +1563,17 @@ function HomePage() {
 
                 <p className="muted">Selecione as musicas no painel "Musicas" e use "Adicionar selecionadas ao set atual".</p>
 
-                <ol className="ordered-list">
-                  {activeSetlist.items.map((item, index) => (
+                <ol className="ordered-list ordered-list-scroll">
+                  {visibleSetItems.map((item, index) => (
                     <li key={item.id}>
                       <span>
-                        {item.song.title}
+                        {index + 1}. {item.song.title}
                         {item.song.artist ? ` - ${item.song.artist}` : ''}
                       </span>
                       <div className="row-actions">
                         <button
                           type="button"
-                          className="button-secondary"
+                          className="button-secondary button-sm"
                           disabled={isSaving}
                           onClick={() => handleSetChordUrl(item.song)}
                         >
@@ -1557,7 +1581,7 @@ function HomePage() {
                         </button>
                         <button
                           type="button"
-                          className="button-secondary"
+                          className="button-secondary button-sm"
                           disabled={isSaving || index === 0}
                           onClick={() => handleMoveItem(item.id, -1)}
                         >
@@ -1565,7 +1589,7 @@ function HomePage() {
                         </button>
                         <button
                           type="button"
-                          className="button-secondary"
+                          className="button-secondary button-sm"
                           disabled={isSaving || index === activeSetlist.items.length - 1}
                           onClick={() => handleMoveItem(item.id, 1)}
                         >
@@ -1573,6 +1597,7 @@ function HomePage() {
                         </button>
                         <button
                           type="button"
+                          className="button-sm"
                           onClick={() => openStageMode(index)}
                           disabled={isSaving}
                         >
@@ -1580,7 +1605,7 @@ function HomePage() {
                         </button>
                         <button
                           type="button"
-                          className="button-danger"
+                          className="button-danger button-sm"
                           disabled={isSaving}
                           onClick={() => handleRemoveItem(item.id)}
                         >
@@ -1590,6 +1615,11 @@ function HomePage() {
                     </li>
                   ))}
                 </ol>
+                {hasMoreSetItems ? (
+                  <button type="button" className="button-secondary button-sm" onClick={handleShowMoreSetItems}>
+                    Mostrar mais musicas
+                  </button>
+                ) : null}
 
                 <hr />
                 <h2>Pedidos do publico</h2>
@@ -1597,7 +1627,7 @@ function HomePage() {
                   <>
                     <p>Compartilhe este link/QR com o publico:</p>
                     <div className="form-inline">
-                      <input value={audienceLink.public_url} readOnly />
+                      <input value={audiencePublicUrl} readOnly />
                       <button type="button" className="button-secondary" onClick={handleCopyPublicLink}>
                         Copiar
                       </button>
