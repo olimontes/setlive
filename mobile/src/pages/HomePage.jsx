@@ -44,6 +44,17 @@ function toWebSocketBaseUrl() {
   return API_ROOT.replace('http://', 'ws://').replace(/\/api$/, '');
 }
 
+function toCifraSlug(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
 function isNetworkError(error) {
   const message = String(error?.message ?? '').toLowerCase();
   return message.includes('failed to fetch') || message.includes('network') || message.includes('offline');
@@ -509,6 +520,11 @@ function HomePage() {
     }
     if (song.chord_url) {
       return song.chord_url;
+    }
+    const titleSlug = toCifraSlug(song.title);
+    const artistSlug = toCifraSlug(song.artist);
+    if (titleSlug && artistSlug) {
+      return `https://www.cifraclub.com.br/${artistSlug}/${titleSlug}/imprimir.html`;
     }
     const query = encodeURIComponent(`${song.title} ${song.artist ?? ''} cifra site:cifraclub.com.br`.trim());
     return `https://www.google.com/search?q=${query}`;
