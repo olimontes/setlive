@@ -379,7 +379,7 @@ button[disabled] {
 
 .stage-shell {
   min-height: 100vh;
-  color: var(--text);
+  color: #e8eeff;
   padding: 1rem;
   display: grid;
   gap: 1rem;
@@ -425,7 +425,7 @@ button[disabled] {
 .stage-position {
   margin: 0;
   font-size: 1rem;
-  color: var(--text-soft);
+  color: #9eb4de;
 }
 
 .stage-song-title {
@@ -437,7 +437,7 @@ button[disabled] {
 .stage-song-artist {
   margin-top: 0.5rem;
   font-size: clamp(1.05rem, 2.1vw, 1.5rem);
-  color: var(--text-soft);
+  color: #a9bde3;
 }
 
 .stage-links {
@@ -493,13 +493,54 @@ button[disabled] {
 
 .stage-item-button {
   background: #243861;
-  color: var(--text);
+  color: #e8eeff;
   text-align: left;
 }
 
 .stage-item-button.active {
   background: linear-gradient(135deg, var(--accent), #2e7bff);
   color: #f7fbff;
+}
+
+.list-stage-queue {
+  max-height: 430px;
+}
+
+.stage-request-item {
+  border: 1px solid #294371;
+  border-radius: 10px;
+  padding: 0.6rem;
+  background: #0d1730;
+}
+
+.stage-request-title {
+  display: block;
+  color: #f0f5ff;
+}
+
+.stage-request-meta {
+  margin: 0.35rem 0 0.5rem;
+  color: #9db2da;
+  font-size: 0.85rem;
+}
+
+.set-item-card {
+  gap: 0.7rem;
+}
+
+.set-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.set-item-title {
+  font-weight: 600;
+}
+
+.set-item-secondary-actions {
+  padding-top: 0.2rem;
 }
 
 @media (max-width: 960px) {
@@ -550,5 +591,9 @@ button[disabled] {
 
   .stage-nav {
     grid-template-columns: 1fr;
+  }
+
+  .set-item-header {
+    flex-direction: column;
   }
 }

@@ -97,6 +97,7 @@ function HomePage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('repertorio');
+  const [expandedSetItemId, setExpandedSetItemId] = useState(null);
 
   const activeSetlistId = activeSetlist?.id ?? null;
   const stageItems = activeSetlist?.items ?? [];
@@ -1221,8 +1222,13 @@ function HomePage() {
     setSetVisibleCount((current) => current + 12);
   }
 
+  function toggleSetItemActions(itemId) {
+    setExpandedSetItemId((current) => (current === itemId ? null : itemId));
+  }
+
   useEffect(() => {
     setSetVisibleCount(12);
+    setExpandedSetItemId(null);
   }, [activeSetlistId]);
 
   if (isLoading) {
@@ -1294,11 +1300,13 @@ function HomePage() {
 
         <section className="stage-queue">
           <h3>Fila de pedidos</h3>
-          <ul className="list compact">
+          <ul className="list compact list-stage-queue">
             {requestQueue.slice(0, 5).map((request) => (
-              <li key={request.id}>
-                <strong>{request.requested_song_name || request.song?.title || 'Musica nao informada'}</strong>
-                {request.requester_name ? ` (por ${request.requester_name})` : ''}
+              <li key={request.id} className="stage-request-item">
+                <strong className="stage-request-title">
+                  {request.requested_song_name || request.song?.title || 'Musica nao informada'}
+                </strong>
+                {request.requester_name ? <p className="stage-request-meta">por {request.requester_name}</p> : null}
                 <div className="row-actions">
                   <a
                     href={buildChordSearchUrl(buildRequestSearchPayload(request))}
@@ -1627,53 +1635,67 @@ function HomePage() {
 
                 <ol className="ordered-list ordered-list-scroll">
                   {visibleSetItems.map((item, index) => (
-                    <li key={item.id}>
-                      <span>
-                        {index + 1}. {item.song.title}
-                        {item.song.artist ? ` - ${item.song.artist}` : ''}
-                      </span>
-                      <div className="row-actions">
-                        <button
-                          type="button"
-                          className="button-secondary button-sm"
-                          disabled={isSaving}
-                          onClick={() => handleSetChordUrl(item.song)}
-                        >
-                          Definir cifra
-                        </button>
-                        <button
-                          type="button"
-                          className="button-secondary button-sm"
-                          disabled={isSaving || index === 0}
-                          onClick={() => handleMoveItem(item.id, -1)}
-                        >
-                          Subir
-                        </button>
-                        <button
-                          type="button"
-                          className="button-secondary button-sm"
-                          disabled={isSaving || index === activeSetlist.items.length - 1}
-                          onClick={() => handleMoveItem(item.id, 1)}
-                        >
-                          Descer
-                        </button>
-                        <button
-                          type="button"
-                          className="button-sm"
-                          onClick={() => openStageMode(index)}
-                          disabled={isSaving}
-                        >
-                          Tocar agora
-                        </button>
-                        <button
-                          type="button"
-                          className="button-danger button-sm"
-                          disabled={isSaving}
-                          onClick={() => handleRemoveItem(item.id)}
-                        >
-                          Remover
-                        </button>
+                    <li key={item.id} className="set-item-card">
+                      <div className="set-item-header">
+                        <span className="set-item-title">
+                          {index + 1}. {item.song.title}
+                          {item.song.artist ? ` - ${item.song.artist}` : ''}
+                        </span>
+                        <div className="row-actions">
+                          <button
+                            type="button"
+                            className="button-sm"
+                            onClick={() => openStageMode(index)}
+                            disabled={isSaving}
+                          >
+                            Tocar agora
+                          </button>
+                          <button
+                            type="button"
+                            className="button-secondary button-sm"
+                            onClick={() => toggleSetItemActions(item.id)}
+                            disabled={isSaving}
+                          >
+                            {expandedSetItemId === item.id ? 'Ocultar acoes' : 'Mais acoes'}
+                          </button>
+                          <button
+                            type="button"
+                            className="button-danger button-sm"
+                            disabled={isSaving}
+                            onClick={() => handleRemoveItem(item.id)}
+                          >
+                            Remover
+                          </button>
+                        </div>
                       </div>
+                      {expandedSetItemId === item.id ? (
+                        <div className="row-actions set-item-secondary-actions">
+                          <button
+                            type="button"
+                            className="button-secondary button-sm"
+                            disabled={isSaving}
+                            onClick={() => handleSetChordUrl(item.song)}
+                          >
+                            Definir cifra
+                          </button>
+                          <button
+                            type="button"
+                            className="button-secondary button-sm"
+                            disabled={isSaving || index === 0}
+                            onClick={() => handleMoveItem(item.id, -1)}
+                          >
+                            Subir
+                          </button>
+                          <button
+                            type="button"
+                            className="button-secondary button-sm"
+                            disabled={isSaving || index === activeSetlist.items.length - 1}
+                            onClick={() => handleMoveItem(item.id, 1)}
+                          >
+                            Descer
+                          </button>
+                        </div>
+                      ) : null}
                     </li>
                   ))}
                 </ol>
