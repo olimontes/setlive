@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { API_ROOT, SPOTIFY_REDIRECT_URI } from '../config/api';
+import { useEffect, useMemo, useState } from 'react';
+import { SPOTIFY_REDIRECT_URI } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import {
   addSetlistItem,
@@ -29,20 +29,12 @@ import {
   saveOfflineSnapshot,
   savePendingMutations,
 } from '../services/offlineStorage';
-import { readTokens } from '../services/tokenStorage';
 import {
   filterSongsNotInSetlist,
   idsReadyToAdd,
   mergeSelectionWithSongs,
   pruneSelectedSongIds,
 } from '../utils/songSelection';
-
-function toWebSocketBaseUrl() {
-  if (API_ROOT.startsWith('https://')) {
-    return API_ROOT.replace('https://', 'wss://').replace(/\/api$/, '');
-  }
-  return API_ROOT.replace('http://', 'ws://').replace(/\/api$/, '');
-}
 
 function toCifraSlug(value) {
   return String(value ?? '')
@@ -63,6 +55,9 @@ function isNetworkError(error) {
 function createTempId() {
   return -Math.floor(Date.now() + Math.random() * 1000);
 }
+
+const REQUEST_QUEUE_POLL_INTERVAL_MS = 10000;
+const REQUEST_QUEUE_POLL_MAX_BACKOFF_MS = 60000;
 
 function HomePage() {
   const { logout } = useAuth();
@@ -90,7 +85,7 @@ function HomePage() {
 
   const [audienceLink, setAudienceLink] = useState(null);
   const [requestQueue, setRequestQueue] = useState([]);
-  const [queueConnectionStatus, setQueueConnectionStatus] = useState('disconnected');
+  const [queueConnectionStatus, setQueueConnectionStatus] = useState('polling');
   const [isStageMode, setIsStageMode] = useState(false);
   const [stageItemIndex, setStageItemIndex] = useState(0);
   const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
@@ -101,9 +96,6 @@ function HomePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-
-  const queueSocketRef = useRef(null);
-  const reconnectTimerRef = useRef(null);
 
   const activeSetlistId = activeSetlist?.id ?? null;
   const stageItems = activeSetlist?.items ?? [];
@@ -342,7 +334,7 @@ function HomePage() {
         if (!setlistId) {
           setRequestQueue([]);
         }
-        setQueueConnectionStatus(isOnline ? 'disconnected' : 'offline');
+        setQueueConnectionStatus(isOnline ? 'polling' : 'offline');
         return;
       }
 
@@ -371,92 +363,48 @@ function HomePage() {
   }, [activeSetlistId, isOnline]);
 
   useEffect(() => {
-    if (!isOnline || !activeSetlistId || !audienceLink?.token) {
-      if (queueSocketRef.current) {
-        queueSocketRef.current.close();
-      }
-      queueSocketRef.current = null;
-      setQueueConnectionStatus(isOnline ? 'disconnected' : 'offline');
+    if (!isOnline || !activeSetlistId) {
+      setQueueConnectionStatus(isOnline ? 'polling' : 'offline');
       return;
     }
+    setQueueConnectionStatus('polling');
+    let cancelled = false;
+    let timeoutId = null;
+    let consecutiveFailures = 0;
 
-    let closedByApp = false;
-    const wsBase = toWebSocketBaseUrl();
-    const accessToken = readTokens()?.access ?? '';
-    const wsUrl = `${wsBase}/ws/repertoire/setlists/${activeSetlistId}/requests/?token=${encodeURIComponent(accessToken)}`;
+    async function pollQueue() {
+      if (cancelled) {
+        return;
+      }
 
-    async function refreshQueueSilently() {
       try {
         const queuePayload = await listSetlistAudienceRequests(activeSetlistId);
         setRequestQueue(queuePayload.items ?? []);
+        consecutiveFailures = 0;
       } catch {
-        // no-op
+        consecutiveFailures += 1;
       }
+
+      if (cancelled) {
+        return;
+      }
+
+      const nextDelay =
+        consecutiveFailures > 0
+          ? Math.min(REQUEST_QUEUE_POLL_INTERVAL_MS * 2 ** consecutiveFailures, REQUEST_QUEUE_POLL_MAX_BACKOFF_MS)
+          : REQUEST_QUEUE_POLL_INTERVAL_MS;
+
+      timeoutId = setTimeout(pollQueue, nextDelay);
     }
 
-    function connect() {
-      setQueueConnectionStatus('connecting');
-      const socket = new WebSocket(wsUrl);
-      queueSocketRef.current = socket;
-
-      socket.onopen = () => {
-        setQueueConnectionStatus('connected');
-        refreshQueueSilently();
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.type === 'queue.request.created' || payload.type === 'connection.ready') {
-            refreshQueueSilently();
-          }
-        } catch {
-          // no-op
-        }
-      };
-
-      socket.onclose = () => {
-        if (closedByApp) {
-          return;
-        }
-        setQueueConnectionStatus('reconnecting');
-        reconnectTimerRef.current = setTimeout(connect, 2000);
-      };
-
-      socket.onerror = () => {
-        socket.close();
-      };
-    }
-
-    connect();
+    timeoutId = setTimeout(pollQueue, REQUEST_QUEUE_POLL_INTERVAL_MS);
 
     return () => {
-      closedByApp = true;
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
-      if (queueSocketRef.current) {
-        queueSocketRef.current.close();
-      }
-      queueSocketRef.current = null;
     };
-  }, [activeSetlistId, audienceLink?.token, isOnline]);
-
-  useEffect(() => {
-    if (!isOnline || !activeSetlistId) {
-      return;
-    }
-
-    const intervalId = setInterval(async () => {
-      try {
-        const queuePayload = await listSetlistAudienceRequests(activeSetlistId);
-        setRequestQueue(queuePayload.items ?? []);
-      } catch {
-        // no-op
-      }
-    }, 5000);
-
-    return () => clearInterval(intervalId);
   }, [activeSetlistId, isOnline]);
 
   useEffect(() => {
@@ -1653,12 +1601,7 @@ function HomePage() {
                       </div>
                     ) : null}
                     <p>
-                      Conexao em tempo real:{' '}
-                      {queueConnectionStatus === 'connected'
-                        ? 'conectada'
-                        : queueConnectionStatus === 'reconnecting'
-                          ? 'reconectando'
-                          : queueConnectionStatus}
+                      Atualizacao automatica da fila: {queueConnectionStatus}
                     </p>
                     <button
                       type="button"

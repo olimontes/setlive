@@ -1,6 +1,9 @@
 import { REPERTOIRE_API_BASE_URL } from '../config/api';
 import { readTokens } from './tokenStorage';
 
+const audienceQueueCacheBySetlist = new Map();
+const audienceQueueEtagBySetlist = new Map();
+
 function authHeaders() {
   const tokens = readTokens();
   return {
@@ -198,11 +201,52 @@ export function getSetlistAudienceLink(setlistId) {
 }
 
 export function listSetlistAudienceRequests(setlistId) {
-  return requestJson(
-    `${REPERTOIRE_API_BASE_URL}/setlists/${setlistId}/requests/`,
-    {},
-    'Falha ao carregar fila de pedidos.'
-  );
+  const cacheKey = String(setlistId);
+  const previousEtag = audienceQueueEtagBySetlist.get(cacheKey);
+  const url = `${REPERTOIRE_API_BASE_URL}/setlists/${setlistId}/requests/`;
+
+  return fetch(url, {
+    headers: {
+      ...authHeaders(),
+      ...(previousEtag ? { 'If-None-Match': previousEtag } : {}),
+    },
+  }).then(async (response) => {
+    if (response.status === 304) {
+      const cached = audienceQueueCacheBySetlist.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      const fullResponse = await fetch(url, {
+        headers: {
+          ...authHeaders(),
+        },
+      });
+      if (!fullResponse.ok) {
+        throw new Error(await parseError(fullResponse, 'Falha ao carregar fila de pedidos.'));
+      }
+      const fullPayload = await fullResponse.json();
+      const fullEtag = fullResponse.headers.get('ETag');
+      if (fullEtag) {
+        audienceQueueEtagBySetlist.set(cacheKey, fullEtag);
+      }
+      audienceQueueCacheBySetlist.set(cacheKey, fullPayload);
+      return fullPayload;
+    }
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, 'Falha ao carregar fila de pedidos.'));
+    }
+
+    const payload = response.status === 204 ? null : await response.json();
+    const nextEtag = response.headers.get('ETag');
+    if (nextEtag) {
+      audienceQueueEtagBySetlist.set(cacheKey, nextEtag);
+    }
+    if (payload) {
+      audienceQueueCacheBySetlist.set(cacheKey, payload);
+    }
+    return payload;
+  });
 }
 
 export function getPublicSetlist(token) {

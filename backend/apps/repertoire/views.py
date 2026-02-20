@@ -1,5 +1,3 @@
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.cache import cache
 from django.core.paginator import Paginator
@@ -40,14 +38,16 @@ def _ensure_session_key(request):
     return request.session.session_key or ""
 
 
-def _channel_group_for_setlist(setlist_id):
-    return f"setlist_requests_{setlist_id}"
-
-
 def _public_url_for_token(request, token):
     if settings.FRONTEND_PUBLIC_URL:
         return f"{settings.FRONTEND_PUBLIC_URL}/public/{token}"
     return request.build_absolute_uri(f"/public/{token}")
+
+
+def _queue_etag(setlist_id, count, latest_id, latest_created_at):
+    latest_part = latest_created_at.isoformat() if latest_created_at else "none"
+    latest_id_part = latest_id or 0
+    return f'W/"setlist-{setlist_id}-count-{count}-latest-{latest_id_part}-{latest_part}"'
 
 
 class SongListCreateView(generics.ListCreateAPIView):
@@ -246,13 +246,28 @@ class SetlistAudienceRequestsView(APIView):
             return Response({"detail": "Repertorio nao encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         queue = AudienceRequest.objects.filter(setlist=setlist).select_related("song")
-        return Response(
+        queue_count = queue.count()
+        latest = queue.values("id", "created_at").first()
+        latest_id = latest["id"] if latest else None
+        latest_created_at = latest["created_at"] if latest else None
+        etag = _queue_etag(setlist.id, queue_count, latest_id, latest_created_at)
+
+        if request.headers.get("If-None-Match") == etag:
+            not_modified = Response(status=status.HTTP_304_NOT_MODIFIED)
+            not_modified["ETag"] = etag
+            not_modified["Cache-Control"] = "no-cache"
+            return not_modified
+
+        response = Response(
             {
                 "setlist_id": setlist.id,
-                "count": queue.count(),
+                "count": queue_count,
                 "items": AudienceRequestSerializer(queue, many=True).data,
             }
         )
+        response["ETag"] = etag
+        response["Cache-Control"] = "no-cache"
+        return response
 
 
 class PublicSetlistView(APIView):
@@ -329,17 +344,5 @@ class PublicAudienceRequestCreateView(APIView):
             ip_address=client_ip or None,
             session_key=session_key,
         )
-
-        channel_layer = get_channel_layer()
-        if channel_layer is not None:
-            async_to_sync(channel_layer.group_send)(
-                _channel_group_for_setlist(setlist.id),
-                {
-                    "type": "queue.request.created",
-                    "setlist_id": setlist.id,
-                    "request_id": audience_request.id,
-                    "created_at": audience_request.created_at.isoformat(),
-                },
-            )
 
         return Response(AudienceRequestSerializer(audience_request).data, status=status.HTTP_201_CREATED)

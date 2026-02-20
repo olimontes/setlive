@@ -32,4 +32,4 @@ python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
 APP_PORT="${PORT:-8000}"
-exec daphne -b 0.0.0.0 -p "$APP_PORT" config.asgi:application
+exec gunicorn config.wsgi:application --bind "0.0.0.0:${APP_PORT}" --workers "${GUNICORN_WORKERS:-2}" --timeout "${GUNICORN_TIMEOUT:-60}"
