@@ -83,6 +83,26 @@ p {
   color: var(--text-soft);
 }
 
+.workspace-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.workspace-tab {
+  background: #1f2f53;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  font-weight: 700;
+}
+
+.workspace-tab.active {
+  background: linear-gradient(135deg, var(--accent), #2e7bff);
+  color: #f7fbff;
+  border-color: transparent;
+}
+
 .columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -334,6 +354,11 @@ button[disabled] {
   margin-bottom: 1rem;
 }
 
+.panel-requests,
+.panel-library {
+  min-height: 520px;
+}
+
 .qr-block {
   margin: 0.75rem 0;
   display: grid;
@@ -492,6 +517,10 @@ button[disabled] {
       'setlists'
       'library'
       'set';
+  }
+
+  .workspace-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .panel {

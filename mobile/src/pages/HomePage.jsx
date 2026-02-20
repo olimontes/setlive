@@ -96,6 +96,7 @@ function HomePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('repertorio');
 
   const activeSetlistId = activeSetlist?.id ?? null;
   const stageItems = activeSetlist?.items ?? [];
@@ -1355,72 +1356,78 @@ function HomePage() {
         {errorMessage && <p className="error">{errorMessage}</p>}
         {successMessage && <p className="success">{successMessage}</p>}
 
-        <section className="panel spotify-panel">
-          <h2>Spotify</h2>
-          <p>
-            Status: {spotifyStatus.connected ? `Conectado (${spotifyStatus.display_name || spotifyStatus.spotify_user_id})` : 'Nao conectado'}
-          </p>
-          <div className="row-actions">
-            <button type="button" onClick={handleConnectSpotify} disabled={isSaving || !isOnline}>
-              Conectar Spotify
-            </button>
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={handleRefreshSpotifyPlaylists}
-              disabled={isSaving || !spotifyStatus.connected || !isOnline}
-            >
-              Atualizar playlists
-            </button>
-          </div>
-          <form className="form-inline" onSubmit={handleImportSpotifyPlaylist}>
-            <select
-              value={selectedSpotifyPlaylistId}
-              onChange={(event) => setSelectedSpotifyPlaylistId(event.target.value)}
-              required
-              disabled={!spotifyStatus.connected || !isOnline}
-            >
-              <option value="">Selecione uma playlist</option>
-              {spotifyPlaylists.map((playlist) => (
-                <option key={playlist.id} value={playlist.id}>
-                  {playlist.name} ({playlist.tracks_total})
-                </option>
-              ))}
-            </select>
-            <button type="submit" disabled={isSaving || !selectedSpotifyPlaylistId || !isOnline}>
-              Importar
-            </button>
-          </form>
-        </section>
+        <nav className="workspace-tabs" aria-label="Navegacao principal da home">
+          <button
+            type="button"
+            className={`workspace-tab ${activeWorkspaceTab === 'repertorio' ? 'active' : ''}`}
+            onClick={() => setActiveWorkspaceTab('repertorio')}
+          >
+            Repertorio
+          </button>
+          <button
+            type="button"
+            className={`workspace-tab ${activeWorkspaceTab === 'biblioteca' ? 'active' : ''}`}
+            onClick={() => setActiveWorkspaceTab('biblioteca')}
+          >
+            Biblioteca
+          </button>
+          <button
+            type="button"
+            className={`workspace-tab ${activeWorkspaceTab === 'pedidos' ? 'active' : ''}`}
+            onClick={() => setActiveWorkspaceTab('pedidos')}
+          >
+            Pedidos
+          </button>
+          <button
+            type="button"
+            className={`workspace-tab ${activeWorkspaceTab === 'spotify' ? 'active' : ''}`}
+            onClick={() => setActiveWorkspaceTab('spotify')}
+          >
+            Spotify
+          </button>
+        </nav>
 
-        <div className="columns workspace-grid">
-          <section className="panel panel-setlists">
-            <h2>Repertorios</h2>
-            <form className="form-inline" onSubmit={handleCreateSetlist}>
-              <input
-                value={newSetlistName}
-                onChange={(event) => setNewSetlistName(event.target.value)}
-                placeholder="Novo repertorio"
+        {activeWorkspaceTab === 'spotify' ? (
+          <section className="panel spotify-panel">
+            <h2>Spotify</h2>
+            <p>
+              Status: {spotifyStatus.connected ? `Conectado (${spotifyStatus.display_name || spotifyStatus.spotify_user_id})` : 'Nao conectado'}
+            </p>
+            <div className="row-actions">
+              <button type="button" onClick={handleConnectSpotify} disabled={isSaving || !isOnline}>
+                Conectar Spotify
+              </button>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={handleRefreshSpotifyPlaylists}
+                disabled={isSaving || !spotifyStatus.connected || !isOnline}
+              >
+                Atualizar playlists
+              </button>
+            </div>
+            <form className="form-inline" onSubmit={handleImportSpotifyPlaylist}>
+              <select
+                value={selectedSpotifyPlaylistId}
+                onChange={(event) => setSelectedSpotifyPlaylistId(event.target.value)}
                 required
-              />
-              <button disabled={isSaving}>Criar</button>
+                disabled={!spotifyStatus.connected || !isOnline}
+              >
+                <option value="">Selecione uma playlist</option>
+                {spotifyPlaylists.map((playlist) => (
+                  <option key={playlist.id} value={playlist.id}>
+                    {playlist.name} ({playlist.tracks_total})
+                  </option>
+                ))}
+              </select>
+              <button type="submit" disabled={isSaving || !selectedSpotifyPlaylistId || !isOnline}>
+                Importar
+              </button>
             </form>
-
-            <ul className="list compact">
-              {setlists.map((setlist) => (
-                <li key={setlist.id}>
-                  <button
-                    className={`list-button ${setlist.id === activeSetlistId ? 'active' : ''}`}
-                    onClick={() => handleSelectSetlist(setlist.id)}
-                    disabled={isSaving}
-                  >
-                    {setlist.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
           </section>
+        ) : null}
 
+        {activeWorkspaceTab === 'biblioteca' ? (
           <section className="panel panel-library">
             <h2>Musicas</h2>
             <form className="form-stack" onSubmit={handleCreateSong}>
@@ -1486,8 +1493,102 @@ function HomePage() {
               ))}
             </ul>
           </section>
+        ) : null}
 
-          <section className="panel panel-set">
+        {activeWorkspaceTab === 'pedidos' ? (
+          <section className="panel panel-requests">
+            <h2>Pedidos do publico</h2>
+            {!activeSetlist ? <p>Selecione um repertorio para liberar pedidos do publico.</p> : null}
+            {activeSetlist && audienceLink ? (
+              <>
+                <p>Compartilhe este link/QR com o publico:</p>
+                <div className="form-inline">
+                  <input value={audiencePublicUrl} readOnly />
+                  <button type="button" className="button-secondary" onClick={handleCopyPublicLink}>
+                    Copiar
+                  </button>
+                </div>
+                {audienceQrCodeUrl ? (
+                  <div className="qr-block">
+                    <img className="qr-image" src={audienceQrCodeUrl} alt="QR Code para pedidos do publico" />
+                    <a className="stage-link-button" href={audienceQrCodeUrl} target="_blank" rel="noreferrer">
+                      Abrir QR em tela cheia
+                    </a>
+                  </div>
+                ) : null}
+                <p>Atualizacao automatica da fila: {queueConnectionStatus}</p>
+                <button
+                  type="button"
+                  className="button-secondary button-sm"
+                  onClick={handleRefreshRequestQueue}
+                  disabled={isSaving || !isOnline}
+                >
+                  Atualizar fila
+                </button>
+              </>
+            ) : null}
+
+            <p>Fila atual: {requestQueue.length} pedido(s).</p>
+            <ul className="list compact">
+              {requestQueue.map((request) => (
+                <li key={request.id}>
+                  <strong>{request.requested_song_name || request.song?.title || 'Musica nao informada'}</strong>
+                  {request.song?.artist ? ` - ${request.song.artist}` : ''}
+                  {request.requester_name ? ` (por ${request.requester_name})` : ''}
+                  <div className="row-actions">
+                    <a
+                      href={buildChordSearchUrl(buildRequestSearchPayload(request))}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="stage-link-button"
+                    >
+                      Cifra
+                    </a>
+                    <a
+                      href={buildLyricsSearchUrl(buildRequestSearchPayload(request))}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="stage-link-button"
+                    >
+                      Letra
+                    </a>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {activeWorkspaceTab === 'repertorio' ? (
+          <div className="columns workspace-grid workspace-grid-repertorio">
+            <section className="panel panel-setlists">
+              <h2>Repertorios</h2>
+              <form className="form-inline" onSubmit={handleCreateSetlist}>
+                <input
+                  value={newSetlistName}
+                  onChange={(event) => setNewSetlistName(event.target.value)}
+                  placeholder="Novo repertorio"
+                  required
+                />
+                <button disabled={isSaving}>Criar</button>
+              </form>
+
+              <ul className="list compact">
+                {setlists.map((setlist) => (
+                  <li key={setlist.id}>
+                    <button
+                      className={`list-button ${setlist.id === activeSetlistId ? 'active' : ''}`}
+                      onClick={() => handleSelectSetlist(setlist.id)}
+                      disabled={isSaving}
+                    >
+                      {setlist.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="panel panel-set">
             <h2>Set atual</h2>
             {!activeSetlist ? (
               <p>Crie ou selecione um repertorio.</p>
@@ -1522,6 +1623,7 @@ function HomePage() {
                 </form>
 
                 <p className="muted">Selecione as musicas no painel "Musicas" e use "Adicionar selecionadas ao set atual".</p>
+                <p className="muted">Para link, QR e fila de pedidos, use a aba "Pedidos".</p>
 
                 <ol className="ordered-list ordered-list-scroll">
                   {visibleSetItems.map((item, index) => (
@@ -1580,72 +1682,11 @@ function HomePage() {
                     Mostrar mais musicas
                   </button>
                 ) : null}
-
-                <hr />
-                <h2>Pedidos do publico</h2>
-                {audienceLink ? (
-                  <>
-                    <p>Compartilhe este link/QR com o publico:</p>
-                    <div className="form-inline">
-                      <input value={audiencePublicUrl} readOnly />
-                      <button type="button" className="button-secondary" onClick={handleCopyPublicLink}>
-                        Copiar
-                      </button>
-                    </div>
-                    {audienceQrCodeUrl ? (
-                      <div className="qr-block">
-                        <img className="qr-image" src={audienceQrCodeUrl} alt="QR Code para pedidos do publico" />
-                        <a className="stage-link-button" href={audienceQrCodeUrl} target="_blank" rel="noreferrer">
-                          Abrir QR em tela cheia
-                        </a>
-                      </div>
-                    ) : null}
-                    <p>
-                      Atualizacao automatica da fila: {queueConnectionStatus}
-                    </p>
-                    <button
-                      type="button"
-                      className="button-secondary button-sm"
-                      onClick={handleRefreshRequestQueue}
-                      disabled={isSaving || !isOnline}
-                    >
-                      Atualizar fila
-                    </button>
-                  </>
-                ) : null}
-
-                <p>Fila atual: {requestQueue.length} pedido(s).</p>
-                <ul className="list compact">
-                  {requestQueue.map((request) => (
-                    <li key={request.id}>
-                      <strong>{request.requested_song_name || request.song?.title || 'Musica nao informada'}</strong>
-                      {request.song?.artist ? ` - ${request.song.artist}` : ''}
-                      {request.requester_name ? ` (por ${request.requester_name})` : ''}
-                      <div className="row-actions">
-                        <a
-                          href={buildChordSearchUrl(buildRequestSearchPayload(request))}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="stage-link-button"
-                        >
-                          Cifra
-                        </a>
-                        <a
-                          href={buildLyricsSearchUrl(buildRequestSearchPayload(request))}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="stage-link-button"
-                        >
-                          Letra
-                        </a>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
               </>
             )}
-          </section>
-        </div>
+            </section>
+          </div>
+        ) : null}
       </section>
     </main>
   );
