@@ -2,7 +2,7 @@
   --bg: #f5f7fb;
   --bg-soft: #eef2f8;
   --surface: #ffffff;
-  --surface-2: #fbfcff;
+  --surface-2: #ffffff;
   --text: #141924;
   --text-soft: #52607a;
   --primary: #1f6feb;
@@ -44,7 +44,7 @@ body {
 .card {
   width: min(440px, 100%);
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid #e7edf7;
   border-radius: 12px;
   padding: 1.5rem;
   box-shadow: var(--shadow);
@@ -73,29 +73,37 @@ h1 {
   font-size: clamp(1.35rem, 1.8vw, 2rem);
 }
 
+h2 {
+  font-size: 1.5rem;
+}
+
 p {
   margin-top: 0.5rem;
   color: var(--text-soft);
 }
 
 .workspace-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--line);
   margin-bottom: 1rem;
+  padding-bottom: 0.3rem;
 }
 
 .workspace-tab {
-  background: #f1f5fc;
-  color: var(--text);
-  border: 1px solid var(--line);
-  font-weight: 700;
+  background: transparent;
+  color: #51617d;
+  border: 0;
+  border-radius: 0;
+  font-weight: 600;
+  padding: 0.55rem 0.7rem;
 }
 
 .workspace-tab.active {
-  background: #e6efff;
+  background: transparent;
   color: #0f2c66;
-  border-color: #b9ccf5;
+  border-bottom: 2px solid #3b82f6;
 }
 
 .columns {
@@ -125,11 +133,12 @@ p {
 }
 
 .panel {
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 10px;
   padding: 1rem;
   background: var(--surface-2);
-  min-height: 440px;
+  min-height: 420px;
+  box-shadow: 0 1px 0 #edf2fa;
 }
 
 .form {
@@ -197,7 +206,7 @@ button,
   font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
+  transition: transform 120ms ease, filter 120ms ease, background 120ms ease;
 }
 
 button:hover,
@@ -223,9 +232,26 @@ button[disabled] {
   border: 1px solid var(--line);
 }
 
+.button-icon {
+  min-width: 42px;
+  padding: 0.66rem;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
 .button-danger {
   background: var(--danger);
   color: #fff;
+}
+
+.button-danger-outline {
+  background: #fff;
+  color: #a73657;
+  border: 1px solid #e8bfd0;
+}
+
+.button-danger-outline:hover {
+  background: #fff2f7;
 }
 
 .link {
@@ -306,8 +332,8 @@ button[disabled] {
   display: grid;
   gap: 0.45rem;
   margin-bottom: 0.45rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 1px solid #e5ebf6;
+  border-radius: 8px;
   background: #fff;
   padding: 0.55rem;
 }
@@ -375,6 +401,11 @@ button[disabled] {
   margin: 0;
   color: var(--text-soft);
   font-size: 0.88rem;
+}
+
+.helper-text {
+  font-size: 0.82rem;
+  color: #73809b;
 }
 
 .stage-shell {
@@ -543,6 +574,10 @@ button[disabled] {
   padding-top: 0.2rem;
 }
 
+.form-inline-compact {
+  grid-template-columns: 1fr auto;
+}
+
 @media (max-width: 960px) {
   .columns {
     grid-template-columns: 1fr;
@@ -557,7 +592,7 @@ button[disabled] {
   }
 
   .workspace-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
   }
 
   .panel {

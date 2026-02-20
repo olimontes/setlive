@@ -1571,14 +1571,16 @@ function HomePage() {
           <div className="columns workspace-grid workspace-grid-repertorio">
             <section className="panel panel-setlists">
               <h2>Repertorios</h2>
-              <form className="form-inline" onSubmit={handleCreateSetlist}>
+              <form className="form-inline form-inline-compact" onSubmit={handleCreateSetlist}>
                 <input
                   value={newSetlistName}
                   onChange={(event) => setNewSetlistName(event.target.value)}
                   placeholder="Novo repertorio"
                   required
                 />
-                <button disabled={isSaving}>Criar</button>
+                <button className="button-secondary button-icon" disabled={isSaving} aria-label="Criar repertorio">
+                  +
+                </button>
               </form>
 
               <ul className="list compact">
@@ -1622,7 +1624,7 @@ function HomePage() {
                   <button disabled={isSaving}>Salvar nome</button>
                   <button
                     type="button"
-                    className="button-danger"
+                    className="button-danger-outline"
                     onClick={handleDeleteSetlist}
                     disabled={isSaving || !isOnline}
                   >
@@ -1630,8 +1632,8 @@ function HomePage() {
                   </button>
                 </form>
 
-                <p className="muted">Selecione as musicas no painel "Musicas" e use "Adicionar selecionadas ao set atual".</p>
-                <p className="muted">Para link, QR e fila de pedidos, use a aba "Pedidos".</p>
+                <p className="muted helper-text">Selecione musicas em "Biblioteca" e adicione ao set atual.</p>
+                <p className="muted helper-text">Link, QR e fila ficam na aba "Pedidos".</p>
 
                 <ol className="ordered-list ordered-list-scroll">
                   {visibleSetItems.map((item, index) => (
@@ -1655,16 +1657,9 @@ function HomePage() {
                             className="button-secondary button-sm"
                             onClick={() => toggleSetItemActions(item.id)}
                             disabled={isSaving}
+                            aria-label="Mais acoes"
                           >
-                            {expandedSetItemId === item.id ? 'Ocultar acoes' : 'Mais acoes'}
-                          </button>
-                          <button
-                            type="button"
-                            className="button-danger button-sm"
-                            disabled={isSaving}
-                            onClick={() => handleRemoveItem(item.id)}
-                          >
-                            Remover
+                            {expandedSetItemId === item.id ? '×' : '•••'}
                           </button>
                         </div>
                       </div>
@@ -1693,6 +1688,14 @@ function HomePage() {
                             onClick={() => handleMoveItem(item.id, 1)}
                           >
                             Descer
+                          </button>
+                          <button
+                            type="button"
+                            className="button-danger-outline button-sm"
+                            disabled={isSaving}
+                            onClick={() => handleRemoveItem(item.id)}
+                          >
+                            Remover
                           </button>
                         </div>
                       ) : null}
